@@ -38,4 +38,5 @@
     </string>
     <string name="title_activity_main">MainActivity</string>
     <string name="addmarker">AddMarker</string>
+    <string name="apply_date_filters">Apply</string>
 </resources>

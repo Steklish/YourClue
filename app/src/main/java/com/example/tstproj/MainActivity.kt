@@ -6,6 +6,7 @@ import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.drawable.Drawable
@@ -155,6 +156,10 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                     200 // Duration in milliseconds
                 )
             }
+        }
+        container.findViewById<MaterialButton>(R.id.open_calendar_button).setOnClickListener {
+            val intent = Intent(this, CalendarSelectFiltersActivity::class.java)
+            startActivity(intent)
         }
     }
 

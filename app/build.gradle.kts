@@ -72,4 +72,5 @@ dependencies {
     implementation("org.maplibre.gl:android-plugin-annotation-v9:3.0.2")
 
     implementation("com.google.android.gms:play-services-location:21.2.0")
+    implementation("com.google.code.gson:gson:2.10.1")
 }
