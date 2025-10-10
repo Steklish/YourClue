@@ -12,6 +12,26 @@
     <color name="white_transparent">#C5E4E4E4</color>
     <color name="primary_color">#B6906A</color>
     <color name="primary_color_inactive">#807B75</color>
+    <color name="secondary_color">#4CAF50</color>
     <color name="transparent">#00000000</color>
+    <color name="red">#FF0000</color>
 
+    <!-- Day of the week colors -->
+    <color name="day_1_sunday">#1C352D</color>
+    <color name="day_2_monday">#A6B28B</color>
+    <color name="day_3_tuesday">#B0C56D</color>
+    <color name="day_4_wednesday">#B3702E</color>
+    <color name="day_5_thursday">#DB6443</color>
+    <color name="day_6_friday">#803636</color>
+    <color name="day_7_saturday">#CC2285</color>
+
+    <array name="week_gradient">
+        <item>@color/day_1_sunday</item>
+        <item>@color/day_2_monday</item>
+        <item>@color/day_3_tuesday</item>
+        <item>@color/day_4_wednesday</item>
+        <item>@color/day_5_thursday</item>
+        <item>@color/day_6_friday</item>
+        <item>@color/day_7_saturday</item>
+    </array>
 </resources>

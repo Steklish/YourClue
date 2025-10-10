@@ -1,15 +1,18 @@
 package com.example.tstproj
 
 import android.Manifest
-import android.R.attr.iconTint
 import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
 import android.annotation.SuppressLint
+import android.app.Activity
+import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.drawable.Drawable
+import android.graphics.drawable.LayerDrawable
 import android.location.Location
 import android.os.Bundle
 import android.renderscript.Allocation
@@ -20,14 +23,15 @@ import android.util.Log
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.EditText
+import android.widget.GridView
 import android.widget.ImageView
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.ColorInt
 import androidx.appcompat.app.AppCompatActivity
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.res.colorResource
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -36,10 +40,14 @@ import androidx.core.graphics.drawable.DrawableCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updateLayoutParams
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import com.example.tstproj.BuildConfig
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
 import com.google.android.material.button.MaterialButton
+import com.google.android.material.datepicker.MaterialDatePicker
+import com.google.gson.reflect.TypeToken
 import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
@@ -47,46 +55,57 @@ import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.OnMapReadyCallback
-import org.maplibre.android.style.expressions.Expression.get
-import org.maplibre.android.style.layers.Property.ICON_ANCHOR_BOTTOM
-import org.maplibre.android.style.layers.PropertyFactory.iconAnchor
-import org.maplibre.android.style.layers.PropertyFactory.iconColor
-import org.maplibre.android.style.layers.PropertyFactory.iconImage
-import org.maplibre.android.style.layers.PropertyFactory.iconSize
+import org.maplibre.android.style.expressions.Expression.*
+import org.maplibre.android.style.layers.LineLayer
+import org.maplibre.android.style.layers.Property
+import org.maplibre.android.style.layers.PropertyFactory
+import org.maplibre.android.style.layers.PropertyFactory.*
 import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.android.utils.BitmapUtils
+import org.maplibre.geojson.LineString
 import org.maplibre.geojson.Point
+import java.util.Date
 
 class MainActivity : AppCompatActivity(), OnMapReadyCallback {
-    private lateinit var backPressedCallback: OnBackPressedCallback
     private lateinit var mapView: MapView
     private lateinit var maplibreMap: MapLibreMap
 
-    private lateinit var createMarkerButton: Button
+    private lateinit var createNoteButton: Button
     private lateinit var popUp: ConstraintLayout
     private lateinit var container: ConstraintLayout
     private lateinit var blurredBackground: ImageView
-    var styleUrl : String? = null
-
-
+    var styleUrl: String? = null
+    private var selectedLocation: LatLng? = null
+    private lateinit var storageHandler: JsonStorage
+    private var notes: MutableList<Note> = mutableListOf()
+    private var editingNote: Note? = null
+    private var linkingNote: Note? = null
 
     private lateinit var fusedLocationClient: FusedLocationProviderClient
+
+    private val calendarActivityResultLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            loadNotes()
+            showMarkersAndLinks()
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         MapLibre.getInstance(this)
         setContentView(R.layout.activity)
 
-        createMarkerButton = findViewById(R.id.createMarkerButton)
+        storageHandler = LocalStorageHandler(this)
+        loadNotes()
+
+        createNoteButton = findViewById(R.id.createMarkerButton)
         popUp = findViewById(R.id.popup)
         container = findViewById(R.id.container)
-        // ADDED: Initialize the ImageView
         blurredBackground = findViewById(R.id.blurred_background)
 
-        // Configure button
-        createMarkerButton.isClickable = true // Set to true to make it clickable
-
+        createNoteButton.isEnabled = false
+        createNoteButton.alpha = 0.5f
 
         val key = BuildConfig.MAPTILER_API_KEY
         val mapId = "backdrop"
@@ -97,15 +116,27 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         mapView.onCreate(savedInstanceState)
         mapView.getMapAsync(this)
 
-        // 1. Initialize the OnBackPressedCallback
-        backPressedCallback = object : OnBackPressedCallback(false) { // Start with disabled
+        val onBackPressedCallback = object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                // This is called when the back button is pressed AND the callback is enabled.
-                hideEditPopup()
+                when {
+                    popUp.visibility == View.VISIBLE -> {
+                        hideEditPopup()
+                    }
+                    selectedLocation != null -> {
+                        removeMarker("temp_marker")
+                        selectedLocation = null
+                        createNoteButton.isEnabled = false
+                        createNoteButton.alpha = 0.5f
+                    }
+                    else -> {
+                        isEnabled = false
+                        onBackPressedDispatcher.onBackPressed()
+                        isEnabled = true
+                    }
+                }
             }
         }
-        // 2. Add the callback to the dispatcher
-        onBackPressedDispatcher.addCallback(this, backPressedCallback)
+        onBackPressedDispatcher.addCallback(this, onBackPressedCallback)
 
         setListeners()
 
@@ -113,53 +144,49 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
         checkAndRequestLocationPermission()
 
-        // We set the listener on the root view of the layout
         ViewCompat.setOnApplyWindowInsetsListener(container) { view, windowInsets ->
-            // Get the insets for the system bars (status bar, navigation bar)
             val insets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars())
-
-            // The 'insets.top' value is the exact height of the status bar
             val statusBarHeight = insets.top
-
-            // Now, apply this height as a top margin to your target view
             mapView.updateLayoutParams<ViewGroup.MarginLayoutParams> {
                 topMargin = statusBarHeight
             }
-
-            // Return the insets so other views can consume them if needed
             windowInsets
         }
     }
 
-    fun setListeners(){
-        createMarkerButton.setOnClickListener {
+    fun setListeners() {
+        createNoteButton.setOnClickListener {
+            editingNote = null
             showEditPopup()
         }
         popUp.findViewById<MaterialButton>(R.id.close_popup_button).setOnClickListener {
-            this.hideEditPopup()
+            hideEditPopup()
+        }
+        popUp.findViewById<Button>(R.id.save_note_button).setOnClickListener {
+            saveNote()
+        }
+        popUp.findViewById<MaterialButton>(R.id.related_date_button).setOnClickListener {
+            showDatePicker()
+        }
+        popUp.findViewById<MaterialButton>(R.id.set_icon_button).setOnClickListener {
+            showIconPicker()
         }
         container.findViewById<MaterialButton>(R.id.find_self_button).setOnClickListener {
-            this.zoomToSelf()
+            zoomToSelf()
         }
         container.findViewById<MaterialButton>(R.id.zoom_in_button).setOnClickListener {
-            if (::maplibreMap.isInitialized) { // check if ready
-                maplibreMap.animateCamera(
-                    CameraUpdateFactory.zoomTo(maplibreMap.zoom + 1f),
-                    200 // Duration in milliseconds
-                )
+            if (::maplibreMap.isInitialized) {
+                maplibreMap.animateCamera(CameraUpdateFactory.zoomTo(maplibreMap.zoom + 1f), 200)
             }
         }
         container.findViewById<MaterialButton>(R.id.zoom_out_button).setOnClickListener {
-            if (::maplibreMap.isInitialized) { // check if ready
-                maplibreMap.animateCamera(
-                    CameraUpdateFactory.zoomTo(maplibreMap.zoom - 1f),
-                    200 // Duration in milliseconds
-                )
+            if (::maplibreMap.isInitialized) {
+                maplibreMap.animateCamera(CameraUpdateFactory.zoomTo(maplibreMap.zoom - 1f), 200)
             }
         }
         container.findViewById<MaterialButton>(R.id.open_calendar_button).setOnClickListener {
             val intent = Intent(this, CalendarSelectFiltersActivity::class.java)
-            startActivity(intent)
+            calendarActivityResultLauncher.launch(intent)
         }
     }
 
@@ -169,27 +196,83 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         val mapId = "backdrop"
         val styleUrl = "https://api.maptiler.com/maps/$mapId/style.json?key=$key"
 
-
-        this.getLocationWithCallback { location ->
+        getLocationWithCallback { location ->
             map.setStyle(styleUrl) {
                 if (location != null) {
                     map.cameraPosition = CameraPosition.Builder()
                         .target(LatLng(location.latitude, location.longitude))
                         .zoom(15.0)
                         .build()
-                    addMarker(location, 0.08f, ContextCompat.getColor(this, R.color.primary_color))
-                }
-                else{
+                    addMarker(
+                        location,
+                        0.08f,
+                        ContextCompat.getColor(this, R.color.primary_color),
+                        "self_marker"
+                    )
+                } else {
                     somethingWentWrongInfoMessage()
                 }
+                showMarkersAndLinks()
             }
         }
 
+        map.addOnMapClickListener { point ->
+            if (popUp.visibility == View.VISIBLE) return@addOnMapClickListener false
 
+            val screenPoint = map.projection.toScreenLocation(point)
+            val noteLayerIds = notes.map { "note-${it.id}-layer" }.toTypedArray()
+            val features = map.queryRenderedFeatures(screenPoint, *noteLayerIds)
 
+            if (linkingNote != null) {
+                if (features.isNotEmpty()) {
+                    val featureId = features[0].getStringProperty("id")
+                    if (featureId != null) {
+                        val noteId = featureId.substringAfter("note-")
+                        val clickedNote = notes.find { it.id == noteId }
+                        if (clickedNote != null && clickedNote.id != linkingNote!!.id) {
+                            if (linkingNote!!.linkedNotes?.contains(clickedNote.id) == false) {
+                                linkingNote!!.linkedNotes?.add(clickedNote.id)
+                            }
+                            if (clickedNote.linkedNotes?.contains(linkingNote!!.id) == false) {
+                                clickedNote.linkedNotes?.add(linkingNote!!.id)
+                            }
+                            storageHandler.writeJsonToFile("notes.json", notes)
+                            drawLinks()
+                            Toast.makeText(this, "Notes linked!", Toast.LENGTH_SHORT).show()
+                            linkingNote = null
+                            return@addOnMapClickListener true
+                        }
+                    }
+                }
+                linkingNote = null
+                Toast.makeText(this, "Link creation cancelled", Toast.LENGTH_SHORT).show()
+                return@addOnMapClickListener false
+            }
+
+            if (features.isNotEmpty()) {
+                val featureId = features[0].getStringProperty("id")
+                if (featureId != null) {
+                    val noteId = featureId.substringAfter("note-")
+                    val note = notes.find { it.id == noteId }
+                    if (note != null) {
+                        editingNote = note
+                        showEditPopup()
+                        return@addOnMapClickListener true
+                    }
+                }
+            }
+
+            selectedLocation = point
+            val tempLocation = Location("")
+            tempLocation.latitude = point.latitude
+            tempLocation.longitude = point.longitude
+            addMarker(tempLocation, 0.08f, ContextCompat.getColor(this, R.color.red), "temp_marker")
+            createNoteButton.isEnabled = true
+            createNoteButton.alpha = 1.0f
+            true
+        }
     }
 
-    // Lifecycle methods...
     override fun onStart() { super.onStart(); mapView.onStart() }
     override fun onResume() { super.onResume(); mapView.onResume() }
     override fun onPause() { super.onPause(); mapView.onPause() }
@@ -203,231 +286,395 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         val renderScript = RenderScript.create(context)
         val tmpIn = Allocation.createFromBitmap(renderScript, bitmap)
         val tmpOut = Allocation.createFromBitmap(renderScript, outputBitmap)
-
-        // Use a blur radius between 1f and 25f
         val blur = ScriptIntrinsicBlur.create(renderScript, Element.U8_4(renderScript))
-        blur.setRadius(20f) // Adjust the blur radius as needed
+        blur.setRadius(20f)
         blur.setInput(tmpIn)
         blur.forEach(tmpOut)
         tmpOut.copyTo(outputBitmap)
-
         renderScript.destroy()
         return outputBitmap
     }
+
     fun showEditPopup() {
         if (!::maplibreMap.isInitialized) {
             Log.w("MainActivity", "Map is not ready yet, cannot show popup.")
             return
         }
 
+        val noteTextInput = popUp.findViewById<EditText>(R.id.note_text_input)
+        val linkButton = popUp.findViewById<Button>(R.id.link_note_button)
+        val linkedNotesRecyclerView = popUp.findViewById<RecyclerView>(R.id.linked_notes_recycler_view)
+        val noLinkedNotesText = popUp.findViewById<TextView>(R.id.no_linked_notes_text)
+        val iconPreview = popUp.findViewById<ImageView>(R.id.icon_preview)
+
+        if (editingNote != null) {
+            noteTextInput.setText(editingNote!!.text)
+            popUp.findViewById<Button>(R.id.save_note_button).isEnabled = true
+            linkButton.visibility = View.VISIBLE
+            linkButton.setOnClickListener {
+                linkingNote = editingNote
+                hideEditPopup()
+                Toast.makeText(this, "Tap another note to create a link", Toast.LENGTH_SHORT).show()
+            }
+
+            val linkedNotes = editingNote!!.linkedNotes?.mapNotNull { getNoteById(it) } ?: emptyList()
+            if (linkedNotes.isNotEmpty()) {
+                val adapter = LinkedNoteAdapter(linkedNotes.toMutableList()) { unlinkedNote ->
+                    editingNote?.linkedNotes?.remove(unlinkedNote.id)
+                    unlinkedNote.linkedNotes?.remove(editingNote!!.id)
+                    storageHandler.writeJsonToFile("notes.json", notes)
+                    showMarkersAndLinks()
+                    showEditPopup() // Refresh the popup
+                }
+                linkedNotesRecyclerView.adapter = adapter
+                linkedNotesRecyclerView.layoutManager = LinearLayoutManager(this)
+                linkedNotesRecyclerView.visibility = View.VISIBLE
+                noLinkedNotesText.visibility = View.GONE
+            } else {
+                linkedNotesRecyclerView.visibility = View.GONE
+                noLinkedNotesText.visibility = View.VISIBLE
+            }
+
+            editingNote!!.icon?.let {
+                iconPreview.setImageResource(it)
+                iconPreview.visibility = View.VISIBLE
+            }
+        } else {
+            noteTextInput.text.clear()
+            popUp.findViewById<Button>(R.id.save_note_button).isEnabled = selectedLocation != null
+            linkButton.visibility = View.GONE
+            linkedNotesRecyclerView.visibility = View.GONE
+            noLinkedNotesText.visibility = View.GONE
+            iconPreview.visibility = View.GONE
+        }
+
         maplibreMap.snapshot { snapshotBitmap ->
             val blurredBitmap = blurBitmap(this@MainActivity, snapshotBitmap)
             blurredBackground.setImageBitmap(blurredBitmap)
-
-            // --- Animation for Blurred Background ---
-            blurredBackground.alpha = 0f // Start fully transparent
+            blurredBackground.alpha = 0f
             blurredBackground.visibility = View.VISIBLE
-            blurredBackground.animate()
-                .alpha(1f) // Animate to fully visible
-                .setDuration(300) // Animation duration in milliseconds
-                .setListener(null) // Clear any previous listeners
+            blurredBackground.animate().alpha(1f).setDuration(300).setListener(null)
 
-            // --- Animation for Popup ---
             popUp.alpha = 0f
-            popUp.scaleX = 0.8f // Start slightly smaller for a "pop" effect
+            popUp.scaleX = 0.8f
             popUp.scaleY = 0.8f
             popUp.visibility = View.VISIBLE
-
-            popUp.animate()
-                .alpha(1f)
-                .scaleX(1f) // Animate to normal size
-                .scaleY(1f)
-                .setDuration(300)
-                .setListener(object : AnimatorListenerAdapter() {
-                    override fun onAnimationEnd(animation: Animator) {
-                        // This runs when the animation is complete
-                        backPressedCallback.isEnabled = true
-                    }
-                })
+            popUp.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(300).setListener(null)
         }
     }
 
-    // --- EDITED: Animate hiding the popup ---
     fun hideEditPopup() {
-        // --- Animation for Blurred Background ---
-        blurredBackground.animate()
-            .alpha(0f) // Animate to fully transparent
-            .setDuration(100)
-            .setListener(object : AnimatorListenerAdapter() {
-                override fun onAnimationEnd(animation: Animator) {
-                    // This runs when the animation is complete
-                    blurredBackground.visibility = View.GONE
-                    // Optional: clear the bitmap to free up memory
-                    blurredBackground.setImageBitmap(null)
-                }
-            })
+        blurredBackground.animate().alpha(0f).setDuration(100).setListener(object : AnimatorListenerAdapter() {
+            override fun onAnimationEnd(animation: Animator) {
+                blurredBackground.visibility = View.GONE
+                blurredBackground.setImageBitmap(null)
+            }
+        })
 
-        // --- Animation for Popup ---
-        popUp.animate()
-            .alpha(0f)
-            .scaleX(0.8f) // Animate to a smaller size
-            .scaleY(0.8f)
-            .setDuration(300)
-            .setListener(object : AnimatorListenerAdapter() {
-                override fun onAnimationEnd(animation: Animator) {
-                    popUp.visibility = View.GONE
-                    // We only disable the back press callback after the animation is finished
-                    backPressedCallback.isEnabled = false
-                }
-            })
+        popUp.animate().alpha(0f).scaleX(0.8f).scaleY(0.8f).setDuration(300).setListener(object : AnimatorListenerAdapter() {
+            override fun onAnimationEnd(animation: Animator) {
+                popUp.visibility = View.GONE
+                removeMarker("temp_marker")
+                selectedLocation = null
+                editingNote = null
+                createNoteButton.isEnabled = false
+                createNoteButton.alpha = 0.5f
+            }
+        })
     }
 
-
-    fun addMarker(position: Location, size: Float, @ColorInt color: Int) {
+    fun addMarker(position: Location, size: Float, @ColorInt color: Int, sourceId: String, icon: Int? = null) {
         val latitude: Double = position.latitude
         val longitude: Double = position.longitude
-
-        // 1. Create a UNIQUE ID for the colored icon to avoid overwriting.
-        // We can base it on the color's integer value.
-        val uniqueIconId = "marker-icon-$color"
+        val uniqueIconId = if (icon != null) "marker-icon-$icon" else "marker-icon-$color"
 
         maplibreMap.getStyle { style ->
-            // 2. OPTIMIZATION: Only generate and add the tinted bitmap if it doesn't already exist in the style.
             if (style.getImage(uniqueIconId) == null) {
-                // Get the original drawable
-                val originalDrawable: Drawable = ResourcesCompat.getDrawable(resources, R.drawable.geo_marker, null)!!
-
-                // Wrap the drawable to make it mutable and apply the tint
-                val wrappedDrawable = DrawableCompat.wrap(originalDrawable).mutate()
-                DrawableCompat.setTint(wrappedDrawable, color)
-
-                // Convert the now-tinted drawable to a bitmap
-                val bitmap = BitmapUtils.getBitmapFromDrawable(wrappedDrawable)!!
-
-                // Add the colored bitmap to the style with our unique ID
+                val drawable = if (icon != null) {
+                    val background = ResourcesCompat.getDrawable(resources, R.drawable.icon_background, null)!!
+                    val iconDrawable = ResourcesCompat.getDrawable(resources, icon, null)!!
+                    val layerDrawable = LayerDrawable(arrayOf(background, iconDrawable))
+                    layerDrawable
+                } else {
+                    val originalDrawable: Drawable = ResourcesCompat.getDrawable(resources, R.drawable.geo_marker, null)!!
+                    val wrappedDrawable = DrawableCompat.wrap(originalDrawable).mutate()
+                    DrawableCompat.setTint(wrappedDrawable, color)
+                    wrappedDrawable
+                }
+                val bitmap = BitmapUtils.getBitmapFromDrawable(drawable)!!
                 style.addImage(uniqueIconId, bitmap)
             }
 
-            // 3. Create a GeoJSON feature for the point
-            val geoJson = """
-        {
-          "type": "FeatureCollection",
-          "features": [{
-            "type": "Feature",
-            "geometry": {
-              "type": "Point",
-              "coordinates": [${longitude}, ${latitude}]
-            },
-            "properties": {
-              "icon": "$uniqueIconId" 
-            }
-          }]
-        }
-        """.trimIndent() // Use the unique ID in the properties
-
-            // 4. Add or update the GeoJSON source.
-            // For multiple markers, you'll want a more robust way to manage the GeoJSON,
-            // but for a single one, this works.
-            if (style.getSource("marker-source") == null) {
-                style.addSource(GeoJsonSource("marker-source", geoJson))
+            val geoJson = """{"type":"FeatureCollection","features":[{"type":"Feature","id":"$sourceId","geometry":{"type":"Point","coordinates":[$longitude,$latitude]},"properties":{"icon":"$uniqueIconId","id":"$sourceId"}}]}"""
+            val source = style.getSource(sourceId) as? GeoJsonSource
+            if (source == null) {
+                style.addSource(GeoJsonSource(sourceId, geoJson))
             } else {
-                (style.getSource("marker-source") as GeoJsonSource).setGeoJson(geoJson)
+                source.setGeoJson(geoJson)
             }
 
-            // 5. Add the symbol layer if it doesn't exist
-            if (style.getLayer("marker-layer") == null) {
-                val symbolLayer = SymbolLayer("marker-layer", "marker-source")
-                    .withProperties(
-                        iconImage(get("icon")), // The 'get("icon")' expression reads the unique ID from the GeoJSON
-                        iconSize(size),
-                        iconAnchor(ICON_ANCHOR_BOTTOM)
-                    )
+            val layerId = "$sourceId-layer"
+            if (style.getLayer(layerId) == null) {
+                val symbolLayer = SymbolLayer(layerId, sourceId).withProperties(
+                    iconImage(get("icon")),
+                    iconSize(size),
+                    iconAnchor(Property.ICON_ANCHOR_BOTTOM)
+                )
                 style.addLayer(symbolLayer)
             }
         }
     }
 
-    private val requestPermissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
-            when {
-                permissions.getOrDefault(Manifest.permission.ACCESS_FINE_LOCATION, false) -> {
-                    // Precise location access granted.
-                    // You can now get the location.
-//                    getLocation()
-                }
-                permissions.getOrDefault(Manifest.permission.ACCESS_COARSE_LOCATION, false) -> {
-                    // Only approximate location access granted.
-                    // You can still get the location, but it will be less accurate.
-//                    getLocation()
-                }
-                else -> {
-                    // No location access granted.
-                    // Handle the case where the user denies the permission.
-                    // You might want to show a dialog explaining why you need the permission.
+    private fun removeMarker(sourceId: String) {
+        maplibreMap.getStyle { style ->
+            val layerId = "$sourceId-layer"
+            style.getLayer(layerId)?.let { style.removeLayer(it) }
+            style.getSource(sourceId)?.let { style.removeSource(it) }
+        }
+    }
+
+    private fun drawLinks() {
+        maplibreMap.getStyle { style ->
+            val layersToRemove = style.layers.filter { it.id.startsWith("link-layer-") }
+            val sourcesToRemove = style.sources.filter { it.id.startsWith("link-source-") }
+            layersToRemove.forEach { style.removeLayer(it) }
+            sourcesToRemove.forEach { style.removeSource(it) }
+
+            val drawnLinks = mutableSetOf<String>()
+
+            notes.forEach { note1 ->
+                note1.linkedNotes?.forEach { note2Id ->
+                    val note2 = notes.find { it.id == note2Id }
+                    if (note2 != null) {
+                        val linkKey = if (note1.id < note2.id) "${note1.id}-${note2.id}" else "${note2.id}-${note1.id}"
+                        if (!drawnLinks.contains(linkKey)) {
+                            drawLineBetweenNotes(note1, note2)
+                            drawnLinks.add(linkKey)
+                        }
+                    }
                 }
             }
         }
+    }
+
+    private fun drawLineBetweenNotes(note1: Note, note2: Note) {
+        maplibreMap.getStyle { style ->
+            val linkId = "link-${note1.id}-${note2.id}"
+            val sourceId = "link-source-$linkId"
+            val layerId = "link-layer-$linkId"
+
+            val lineString = LineString.fromLngLats(listOf(
+                Point.fromLngLat(note1.coordinates.longitude, note1.coordinates.latitude),
+                Point.fromLngLat(note2.coordinates.longitude, note2.coordinates.latitude)
+            ))
+
+            val geoJsonSource = GeoJsonSource(sourceId, lineString)
+            style.addSource(geoJsonSource)
+
+            val color1 = ColorUtils.getColorForDate(this, note1.relatedDate)
+            val color2 = ColorUtils.getColorForDate(this, note2.relatedDate)
+
+            val lineLayer = LineLayer(layerId, sourceId).withProperties(lineWidth(2f))
+
+            if (color1 == color2) {
+                lineLayer.setProperties(lineColor(color1))
+            } else {
+                lineLayer.setProperties(
+                    lineGradient(
+                        interpolate(
+                            linear(),
+                            lineProgress(),
+                            stop(0, color(color1)),
+                            stop(1, color(color2))
+                        )
+                    )
+                )
+            }
+
+            style.addLayer(lineLayer)
+        }
+    }
+
+    private fun showMarkersAndLinks() {
+        if (!::maplibreMap.isInitialized) return
+        maplibreMap.getStyle { style ->
+            val layersToRemove = style.layers.filter { it.id.startsWith("note-") || it.id.startsWith("link-layer-") }
+            val sourcesToRemove = style.sources.filter { it.id.startsWith("note-") || it.id.startsWith("link-source-") }
+            layersToRemove.forEach { style.removeLayer(it) }
+            sourcesToRemove.forEach { style.removeSource(it) }
+
+            notes.forEach { note ->
+                val noteLocation = Location("")
+                noteLocation.latitude = note.coordinates.latitude
+                noteLocation.longitude = note.coordinates.longitude
+                val color = ColorUtils.getColorForDate(this, note.relatedDate)
+                addMarker(noteLocation, 0.08f, color, "note-${note.id}", note.icon)
+            }
+
+            drawLinks()
+        }
+    }
+
+    private val requestPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
+        when {
+            permissions.getOrDefault(Manifest.permission.ACCESS_FINE_LOCATION, false) -> {}
+            permissions.getOrDefault(Manifest.permission.ACCESS_COARSE_LOCATION, false) -> {}
+            else -> {}
+        }
+    }
 
     fun checkAndRequestLocationPermission() {
         when {
-            ActivityCompat.checkSelfPermission(
-                this,
-                Manifest.permission.ACCESS_FINE_LOCATION
-            ) == PackageManager.PERMISSION_GRANTED &&
-                    ActivityCompat.checkSelfPermission(
-                        this,
-                        Manifest.permission.ACCESS_COARSE_LOCATION
-                    ) == PackageManager.PERMISSION_GRANTED -> {
-            }
-            shouldShowRequestPermissionRationale(Manifest.permission.ACCESS_FINE_LOCATION) -> {
-                // Explain to the user why you need this permission.
-                // After showing the explanation, you can request the permission again.
-                // For example, show a dialog here.
-            }
+            ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED &&
+            ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED -> {}
+            shouldShowRequestPermissionRationale(Manifest.permission.ACCESS_FINE_LOCATION) -> {}
             else -> {
-                // Directly ask for the permission.
-                requestPermissionLauncher.launch(
-                    arrayOf(
-                        Manifest.permission.ACCESS_FINE_LOCATION,
-                        Manifest.permission.ACCESS_COARSE_LOCATION
-                    )
-                )
+                requestPermissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
             }
         }
     }
 
     @SuppressLint("MissingPermission")
     private fun getLocationWithCallback(onLocationReady: (Location?) -> Unit) {
-        fusedLocationClient.lastLocation
-            .addOnSuccessListener { location: Location? ->
-                // We have a result, call the callback with the location
-                // The location can be null, so we pass it as-is.
-                onLocationReady(location)
-            }
-            .addOnFailureListener { e ->
-                // An error occurred, call the callback with null
-                Log.e("LocationError", "Failed to get location.", e)
-                onLocationReady(null)
-            }
+        fusedLocationClient.lastLocation.addOnSuccessListener { location: Location? ->
+            onLocationReady(location)
+        }.addOnFailureListener { e ->
+            Log.e("LocationError", "Failed to get location.", e)
+            onLocationReady(null)
+        }
     }
 
-    private fun somethingWentWrongInfoMessage(){
+    private fun somethingWentWrongInfoMessage() {
         Toast.makeText(this, "Something went wrong", Toast.LENGTH_LONG).show()
     }
 
-    private fun zoomToSelf(){
-        this.getLocationWithCallback { location ->
+    private fun zoomToSelf() {
+        getLocationWithCallback { location ->
             if (location != null) {
-                this.maplibreMap.cameraPosition = CameraPosition.Builder()
+                maplibreMap.cameraPosition = CameraPosition.Builder()
                     .target(LatLng(location.latitude, location.longitude))
                     .zoom(15.0)
                     .build()
-            }
-            else{
+            } else {
                 somethingWentWrongInfoMessage()
             }
             Toast.makeText(this, "Found you!", Toast.LENGTH_SHORT).show()
-
         }
+    }
+
+    private fun saveNote() {
+        val noteText = popUp.findViewById<EditText>(R.id.note_text_input).text.toString()
+        if (noteText.isBlank()) {
+            Toast.makeText(this, "Note text cannot be empty", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        if (editingNote != null) {
+            editingNote!!.text = noteText
+            editingNote!!.editDate = Date()
+            removeMarker("note-${editingNote!!.id}")
+            val noteLocation = Location("")
+            noteLocation.latitude = editingNote!!.coordinates.latitude
+            noteLocation.longitude = editingNote!!.coordinates.longitude
+            addMarker(noteLocation, 0.08f, ColorUtils.getColorForDate(this, editingNote!!.relatedDate), "note-${editingNote!!.id}", editingNote!!.icon)
+        } else {
+            selectedLocation?.let { loc ->
+                val newNote = Note(
+                    coordinates = Coordinates(loc.latitude, loc.longitude),
+                    text = noteText,
+                    relatedDate = Date(),
+                    creationDate = Date(),
+                    editDate = Date(),
+                    linkedNotes = mutableListOf(),
+                    icon = editingNote?.icon
+                )
+                notes.add(newNote)
+                val noteLocation = Location("")
+                noteLocation.latitude = newNote.coordinates.latitude
+                noteLocation.longitude = newNote.coordinates.longitude
+                addMarker(noteLocation, 0.08f, ColorUtils.getColorForDate(this, newNote.relatedDate), "note-${newNote.id}", newNote.icon)
+            }
+        }
+        storageHandler.writeJsonToFile("notes.json", notes)
+        drawLinks()
+        hideEditPopup()
+    }
+
+    private fun loadNotes() {
+        val type = object : TypeToken<List<Note>>() {}.type
+        val loadedNotes: List<Note>? = storageHandler.readJsonFromFile("notes.json", type)
+        loadedNotes?.let {
+            notes = it.toMutableList()
+            notes.forEach { note ->
+                if (note.linkedNotes == null) {
+                    note.linkedNotes = mutableListOf()
+                }
+            }
+        }
+    }
+
+    private fun showDatePicker() {
+        val datePicker = MaterialDatePicker.Builder.datePicker().setTitleText("Select date").setSelection(MaterialDatePicker.todayInUtcMilliseconds()).build()
+        datePicker.addOnPositiveButtonClickListener { date ->
+            val selectedDate = Date(date)
+            if (editingNote != null) {
+                editingNote!!.relatedDate = selectedDate
+                saveNote()
+            } else {
+                selectedLocation?.let {
+                    val tempLocation = Location("")
+                    tempLocation.latitude = it.latitude
+                    tempLocation.longitude = it.longitude
+                    removeMarker("temp_marker")
+                    addMarker(tempLocation, 0.08f, ColorUtils.getColorForDate(this, selectedDate), "temp_marker")
+                }
+            }
+        }
+        datePicker.show(supportFragmentManager, "datePicker")
+    }
+
+    private fun getNoteById(noteId: String): Note? {
+        return notes.find { it.id == noteId }
+    }
+
+    private fun showIconPicker() {
+        val drawableResources = getAllDrawableResources()
+        val iconAdapter = IconAdapter(this, drawableResources)
+
+        val dialogView = layoutInflater.inflate(R.layout.icon_picker_popup, null)
+        val iconGrid = dialogView.findViewById<GridView>(R.id.icon_grid)
+        iconGrid.adapter = iconAdapter
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Select Icon")
+            .setView(dialogView)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("No Icon") { _, _ ->
+                editingNote?.icon = null
+                showEditPopup()
+            }
+            .create()
+
+        iconGrid.setOnItemClickListener { _, _, position, _ ->
+            editingNote?.icon = drawableResources[position]
+            dialog.dismiss()
+            showEditPopup()
+        }
+
+        dialog.show()
+    }
+
+    private fun getAllDrawableResources(): List<Int> {
+        val unwantedDrawables = setOf(
+            R.drawable.button_background,
+            R.drawable.close_icon,
+            R.drawable.delete_icon,
+            R.drawable.delete_location,
+            R.drawable.shape_button_prime_rounded_corners,
+            R.drawable.shape_rounded_colors_popup,
+            R.drawable.shape_rounded_square,
+            R.drawable.icon_background
+        )
+        return R.drawable::class.java.fields.map { it.getInt(null) }.filter { !unwantedDrawables.contains(it) }
     }
 }

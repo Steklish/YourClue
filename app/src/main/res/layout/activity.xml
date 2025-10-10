@@ -15,14 +15,13 @@
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent"/>
-    <!-- It is hidden by default -->
+
     <Button
         android:id="@+id/createMarkerButton"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginBottom="20dp"
-        android:backgroundTint="@color/primary_color_inactive"
-        android:clickable="false"
+        android:background="@drawable/button_background"
         android:elevation="24dp"
         android:text="@string/addmarker"
         app:cornerRadius="5dp"
