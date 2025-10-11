@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Tst proj</string>
+    <string name="app_name">YouClue</string>
     <string name="lorem_ipsum">
         Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nam in scelerisque sem. Mauris
         volutpat, dolor id interdum ullamcorper, risus dolor egestas lectus, sit amet mattis purus
@@ -39,4 +39,9 @@
     <string name="title_activity_main">MainActivity</string>
     <string name="addmarker">Add Note</string>
     <string name="apply_date_filters">Apply</string>
+    <string name="select_date">Select Date</string>
+    <string name="save_note">Save Note</string>
+    <string name="delete">Delete</string>
+    <string name="linked_notes">Linked Notes</string>
+    <string name="link_note">Link Note</string>
 </resources>

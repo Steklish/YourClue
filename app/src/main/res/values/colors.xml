@@ -16,14 +16,17 @@
     <color name="transparent">#00000000</color>
     <color name="red">#FF0000</color>
 
+    <color name="new_marker_color">#98285AA8</color>
+
+
     <!-- Day of the week colors -->
-    <color name="day_1_sunday">#1C352D</color>
-    <color name="day_2_monday">#A6B28B</color>
-    <color name="day_3_tuesday">#B0C56D</color>
-    <color name="day_4_wednesday">#B3702E</color>
-    <color name="day_5_thursday">#DB6443</color>
-    <color name="day_6_friday">#803636</color>
-    <color name="day_7_saturday">#CC2285</color>
+    <color name="day_1_sunday">#2A7B9B</color>
+    <color name="day_2_monday">#739D7E</color>
+    <color name="day_3_tuesday">#B9B966</color>
+    <color name="day_4_wednesday">#C7C357</color>
+    <color name="day_5_thursday">#D9A655</color>
+    <color name="day_6_friday">#E57D54</color>
+    <color name="day_7_saturday">#ED5353</color>
 
     <array name="week_gradient">
         <item>@color/day_1_sunday</item>

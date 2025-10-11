@@ -16,16 +16,13 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent"/>
 
-    <Button
+    <com.google.android.material.button.MaterialButton
         android:id="@+id/createMarkerButton"
+        style="@style/Base.Button"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginBottom="20dp"
-        android:background="@drawable/button_background"
-        android:elevation="24dp"
         android:text="@string/addmarker"
-        app:cornerRadius="5dp"
-        android:textColor="@color/white"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent" />
@@ -69,11 +66,13 @@
             android:layout_height="50dp"
             android:layout_marginStart="15dp"
             android:layout_marginTop="15dp"
-            android:backgroundTint="@color/white_transparent"
+            app:backgroundTint="@color/white_transparent"
             app:cornerRadius="5dp"
             app:icon="@drawable/maximize_size"
             app:iconGravity="textStart"
-            app:iconTint="@color/grey" />
+            app:iconTint="@color/grey"
+            app:strokeColor="@color/grey"
+            app:strokeWidth="1dp" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/zoom_out_button"
@@ -81,11 +80,13 @@
             android:layout_height="50dp"
             android:layout_marginStart="15dp"
             android:layout_marginTop="15dp"
-            android:backgroundTint="@color/white_transparent"
+            app:backgroundTint="@color/white_transparent"
             app:cornerRadius="5dp"
             app:icon="@drawable/minimize_size"
             app:iconGravity="textStart"
-            app:iconTint="@color/grey" />
+            app:iconTint="@color/grey"
+            app:strokeColor="@color/grey"
+            app:strokeWidth="1dp" />
 
 
     </LinearLayout>

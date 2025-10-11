@@ -10,8 +10,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.drawable.Drawable
+import android.graphics.Color
 import android.graphics.drawable.LayerDrawable
 import android.location.Location
 import android.os.Bundle
@@ -42,7 +41,6 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updateLayoutParams
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import com.example.tstproj.BuildConfig
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
 import com.google.android.material.button.MaterialButton
@@ -58,14 +56,16 @@ import org.maplibre.android.maps.OnMapReadyCallback
 import org.maplibre.android.style.expressions.Expression.*
 import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.Property
-import org.maplibre.android.style.layers.PropertyFactory
 import org.maplibre.android.style.layers.PropertyFactory.*
 import org.maplibre.android.style.layers.SymbolLayer
+import org.maplibre.android.style.sources.GeoJsonOptions
 import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.android.utils.BitmapUtils
+import org.maplibre.geojson.Feature
+import org.maplibre.geojson.FeatureCollection
 import org.maplibre.geojson.LineString
 import org.maplibre.geojson.Point
-import java.util.Date
+import java.util.*
 
 class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private lateinit var mapView: MapView
@@ -81,6 +81,10 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private var notes: MutableList<Note> = mutableListOf()
     private var editingNote: Note? = null
     private var linkingNote: Note? = null
+
+    // Temp state for new notes
+    private var newNoteIcon: Int? = null
+    private var newNoteDate: Date = Date()
 
     private lateinit var fusedLocationClient: FusedLocationProviderClient
 
@@ -196,6 +200,11 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         val mapId = "backdrop"
         val styleUrl = "https://api.maptiler.com/maps/$mapId/style.json?key=$key"
 
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+            return
+        }
+
         getLocationWithCallback { location ->
             map.setStyle(styleUrl) {
                 if (location != null) {
@@ -220,7 +229,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             if (popUp.visibility == View.VISIBLE) return@addOnMapClickListener false
 
             val screenPoint = map.projection.toScreenLocation(point)
-            val noteLayerIds = notes.map { "note-${it.id}-layer" }.toTypedArray()
+            val noteLayerIds = notes.map { "note-${it.id}-background-layer" }.toTypedArray()
             val features = map.queryRenderedFeatures(screenPoint, *noteLayerIds)
 
             if (linkingNote != null) {
@@ -249,14 +258,14 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 return@addOnMapClickListener false
             }
 
+            removeInfoWindows()
             if (features.isNotEmpty()) {
                 val featureId = features[0].getStringProperty("id")
                 if (featureId != null) {
                     val noteId = featureId.substringAfter("note-")
                     val note = notes.find { it.id == noteId }
                     if (note != null) {
-                        editingNote = note
-                        showEditPopup()
+                        showInfoWindow(note)
                         return@addOnMapClickListener true
                     }
                 }
@@ -266,10 +275,32 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             val tempLocation = Location("")
             tempLocation.latitude = point.latitude
             tempLocation.longitude = point.longitude
-            addMarker(tempLocation, 0.08f, ContextCompat.getColor(this, R.color.red), "temp_marker")
+            addMarker(tempLocation, 0.08f, ContextCompat.getColor(this, R.color.new_marker_color), "temp_marker", R.drawable.cross_round_svgrepo_com)
             createNoteButton.isEnabled = true
             createNoteButton.alpha = 1.0f
             true
+        }
+
+        map.addOnMapLongClickListener { point ->
+            if (popUp.visibility == View.VISIBLE) return@addOnMapLongClickListener false
+
+            val screenPoint = map.projection.toScreenLocation(point)
+            val noteLayerIds = notes.map { "note-${it.id}-background-layer" }.toTypedArray()
+            val features = map.queryRenderedFeatures(screenPoint, *noteLayerIds)
+
+            if (features.isNotEmpty()) {
+                val featureId = features[0].getStringProperty("id")
+                if (featureId != null) {
+                    val noteId = featureId.substringAfter("note-")
+                    val note = notes.find { it.id == noteId }
+                    if (note != null) {
+                        editingNote = note
+                        showEditPopup()
+                        return@addOnMapLongClickListener true
+                    }
+                }
+            }
+            false
         }
     }
 
@@ -300,9 +331,10 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             Log.w("MainActivity", "Map is not ready yet, cannot show popup.")
             return
         }
-
+        createNoteButton.visibility = View.GONE
         val noteTextInput = popUp.findViewById<EditText>(R.id.note_text_input)
         val linkButton = popUp.findViewById<Button>(R.id.link_note_button)
+        val deleteButton = popUp.findViewById<Button>(R.id.delete_note_button)
         val linkedNotesRecyclerView = popUp.findViewById<RecyclerView>(R.id.linked_notes_recycler_view)
         val noLinkedNotesText = popUp.findViewById<TextView>(R.id.no_linked_notes_text)
         val iconPreview = popUp.findViewById<ImageView>(R.id.icon_preview)
@@ -311,10 +343,17 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             noteTextInput.setText(editingNote!!.text)
             popUp.findViewById<Button>(R.id.save_note_button).isEnabled = true
             linkButton.visibility = View.VISIBLE
+            deleteButton.visibility = View.VISIBLE
             linkButton.setOnClickListener {
                 linkingNote = editingNote
                 hideEditPopup()
                 Toast.makeText(this, "Tap another note to create a link", Toast.LENGTH_SHORT).show()
+            }
+            deleteButton.setOnClickListener {
+                notes.remove(editingNote!!)
+                storageHandler.writeJsonToFile("notes.json", notes)
+                showMarkersAndLinks()
+                hideEditPopup()
             }
 
             val linkedNotes = editingNote!!.linkedNotes?.mapNotNull { getNoteById(it) } ?: emptyList()
@@ -340,9 +379,13 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 iconPreview.visibility = View.VISIBLE
             }
         } else {
+            // New note
+            newNoteIcon = null
+            newNoteDate = Date()
             noteTextInput.text.clear()
             popUp.findViewById<Button>(R.id.save_note_button).isEnabled = selectedLocation != null
             linkButton.visibility = View.GONE
+            deleteButton.visibility = View.GONE
             linkedNotesRecyclerView.visibility = View.GONE
             noLinkedNotesText.visibility = View.GONE
             iconPreview.visibility = View.GONE
@@ -364,6 +407,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     }
 
     fun hideEditPopup() {
+        createNoteButton.visibility = View.VISIBLE
         blurredBackground.animate().alpha(0f).setDuration(100).setListener(object : AnimatorListenerAdapter() {
             override fun onAnimationEnd(animation: Animator) {
                 blurredBackground.visibility = View.GONE
@@ -386,49 +430,88 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     fun addMarker(position: Location, size: Float, @ColorInt color: Int, sourceId: String, icon: Int? = null) {
         val latitude: Double = position.latitude
         val longitude: Double = position.longitude
-        val uniqueIconId = if (icon != null) "marker-icon-$icon" else "marker-icon-$color"
 
         maplibreMap.getStyle { style ->
-            if (style.getImage(uniqueIconId) == null) {
-                val drawable = if (icon != null) {
-                    val background = ResourcesCompat.getDrawable(resources, R.drawable.icon_background, null)!!
-                    val iconDrawable = ResourcesCompat.getDrawable(resources, icon, null)!!
-                    val layerDrawable = LayerDrawable(arrayOf(background, iconDrawable))
-                    layerDrawable
-                } else {
-                    val originalDrawable: Drawable = ResourcesCompat.getDrawable(resources, R.drawable.geo_marker, null)!!
-                    val wrappedDrawable = DrawableCompat.wrap(originalDrawable).mutate()
-                    DrawableCompat.setTint(wrappedDrawable, color)
-                    wrappedDrawable
-                }
-                val bitmap = BitmapUtils.getBitmapFromDrawable(drawable)!!
-                style.addImage(uniqueIconId, bitmap)
-            }
-
-            val geoJson = """{"type":"FeatureCollection","features":[{"type":"Feature","id":"$sourceId","geometry":{"type":"Point","coordinates":[$longitude,$latitude]},"properties":{"icon":"$uniqueIconId","id":"$sourceId"}}]}"""
+            // Create GeoJSON source (same as before)
+            val feature = Feature.fromGeometry(Point.fromLngLat(longitude, latitude))
+            feature.addStringProperty("id", sourceId)
             val source = style.getSource(sourceId) as? GeoJsonSource
             if (source == null) {
-                style.addSource(GeoJsonSource(sourceId, geoJson))
+                style.addSource(GeoJsonSource(sourceId, feature))
             } else {
-                source.setGeoJson(geoJson)
+                source.setGeoJson(feature)
             }
 
-            val layerId = "$sourceId-layer"
-            if (style.getLayer(layerId) == null) {
-                val symbolLayer = SymbolLayer(layerId, sourceId).withProperties(
-                    iconImage(get("icon")),
-                    iconSize(size),
-                    iconAnchor(Property.ICON_ANCHOR_BOTTOM)
-                )
-                style.addLayer(symbolLayer)
+            // Add background marker image (same as before)
+            val backgroundIconId = "marker-background-$color"
+            if (style.getImage(backgroundIconId) == null) {
+                val backgroundDrawable = ResourcesCompat.getDrawable(resources, R.drawable.geo_marker, null)!!
+                val wrappedDrawable = DrawableCompat.wrap(backgroundDrawable).mutate()
+                DrawableCompat.setTint(wrappedDrawable, color)
+                style.addImage(backgroundIconId, BitmapUtils.getBitmapFromDrawable(wrappedDrawable)!!)
+            }
+
+            // Add background layer
+            val backgroundLayerId = "$sourceId-background-layer"
+            if (style.getLayer(backgroundLayerId) == null) {
+                val backgroundLayer = SymbolLayer(backgroundLayerId, sourceId)
+                    .withProperties(
+                        iconImage(backgroundIconId),
+                        iconSize(size),
+                        iconAnchor(Property.ICON_ANCHOR_BOTTOM),
+                        iconAllowOverlap(true),
+                        iconIgnorePlacement(true),
+                        // Keep background upright and not shrinking
+                        iconPitchAlignment(Property.ICON_PITCH_ALIGNMENT_VIEWPORT),
+                        iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_VIEWPORT)
+                    )
+                style.addLayer(backgroundLayer)
+            }
+
+            if (icon != null) {
+                // Add icon image (same as before)
+                val iconId = "marker-icon-$icon"
+                if (style.getImage(iconId) == null) {
+                    val iconDrawable = ResourcesCompat.getDrawable(resources, icon, null)!!.mutate()
+                    iconDrawable.setTint(ContextCompat.getColor(this, R.color.white))
+                    style.addImage(iconId, BitmapUtils.getBitmapFromDrawable(iconDrawable)!!)
+                }
+
+                // Add icon layer
+                val iconLayerId = "$sourceId-icon-layer"
+                if (style.getLayer(iconLayerId) == null) {
+                    val iconLayer = SymbolLayer(iconLayerId, sourceId)
+                        .withProperties(
+                            iconImage(iconId),
+                            iconSize(size * 0.4f),
+                            iconAnchor(Property.ICON_ANCHOR_BOTTOM),
+                            iconAllowOverlap(true),
+                            iconIgnorePlacement(true),
+
+                            // 1. Keep icon upright and not shrinking
+                            iconPitchAlignment(Property.ICON_PITCH_ALIGNMENT_VIEWPORT),
+                            iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_VIEWPORT),
+
+                            // 2. Move icon up by fixed pixels
+                            iconTranslate(arrayOf(0f, -20f)),
+
+                            // 3. THE FINAL FIX: Ensure the translation is always "UP" relative
+                            // to the SCREEN, not the map.
+                            iconTranslateAnchor(Property.ICON_TRANSLATE_ANCHOR_VIEWPORT)
+                        )
+                    style.addLayer(iconLayer)
+                }
             }
         }
     }
 
     private fun removeMarker(sourceId: String) {
         maplibreMap.getStyle { style ->
-            val layerId = "$sourceId-layer"
-            style.getLayer(layerId)?.let { style.removeLayer(it) }
+            val backgroundLayerId = "$sourceId-background-layer"
+            val iconLayerId = "$sourceId-icon-layer"
+
+            style.getLayer(iconLayerId)?.let { style.removeLayer(it) }
+            style.getLayer(backgroundLayerId)?.let { style.removeLayer(it) }
             style.getSource(sourceId)?.let { style.removeSource(it) }
         }
     }
@@ -468,18 +551,25 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 Point.fromLngLat(note2.coordinates.longitude, note2.coordinates.latitude)
             ))
 
-            val geoJsonSource = GeoJsonSource(sourceId, lineString)
+            val geoJsonOptions = GeoJsonOptions()
+                .withLineMetrics(true) // This is required for line-gradient to work
+
+            // Pass the options into the GeoJsonSource constructor
+            val geoJsonSource = GeoJsonSource(sourceId, lineString, geoJsonOptions)
             style.addSource(geoJsonSource)
 
             val color1 = ColorUtils.getColorForDate(this, note1.relatedDate)
             val color2 = ColorUtils.getColorForDate(this, note2.relatedDate)
 
-            val lineLayer = LineLayer(layerId, sourceId).withProperties(lineWidth(2f))
-
+            val lineLayer = LineLayer(layerId, sourceId)
             if (color1 == color2) {
-                lineLayer.setProperties(lineColor(color1))
+                lineLayer.withProperties(
+                    lineWidth(4f),
+                    lineColor(color1)
+                )
             } else {
-                lineLayer.setProperties(
+                lineLayer.withProperties(
+                    lineWidth(4f),
                     lineGradient(
                         interpolate(
                             linear(),
@@ -490,7 +580,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                     )
                 )
             }
-
             style.addLayer(lineLayer)
         }
     }
@@ -503,6 +592,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             layersToRemove.forEach { style.removeLayer(it) }
             sourcesToRemove.forEach { style.removeSource(it) }
 
+            drawLinks()
+
             notes.forEach { note ->
                 val noteLocation = Location("")
                 noteLocation.latitude = note.coordinates.latitude
@@ -510,24 +601,30 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 val color = ColorUtils.getColorForDate(this, note.relatedDate)
                 addMarker(noteLocation, 0.08f, color, "note-${note.id}", note.icon)
             }
-
-            drawLinks()
         }
     }
 
     private val requestPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
         when {
-            permissions.getOrDefault(Manifest.permission.ACCESS_FINE_LOCATION, false) -> {}
-            permissions.getOrDefault(Manifest.permission.ACCESS_COARSE_LOCATION, false) -> {}
-            else -> {}
+            permissions.getOrDefault(Manifest.permission.ACCESS_FINE_LOCATION, false) ||
+                    permissions.getOrDefault(Manifest.permission.ACCESS_COARSE_LOCATION, false) -> {
+                if (::maplibreMap.isInitialized) {
+                    onMapReady(maplibreMap)
+                }
+            }
+            else -> {
+                Toast.makeText(this, "Location permission denied", Toast.LENGTH_LONG).show()
+            }
         }
     }
 
     fun checkAndRequestLocationPermission() {
         when {
             ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED &&
-            ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED -> {}
-            shouldShowRequestPermissionRationale(Manifest.permission.ACCESS_FINE_LOCATION) -> {}
+                    ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED -> {}
+            shouldShowRequestPermissionRationale(Manifest.permission.ACCESS_FINE_LOCATION) -> {
+                // You can show a rationale dialog here if needed
+            }
             else -> {
                 requestPermissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
             }
@@ -582,11 +679,11 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 val newNote = Note(
                     coordinates = Coordinates(loc.latitude, loc.longitude),
                     text = noteText,
-                    relatedDate = Date(),
+                    relatedDate = newNoteDate,
                     creationDate = Date(),
                     editDate = Date(),
                     linkedNotes = mutableListOf(),
-                    icon = editingNote?.icon
+                    icon = newNoteIcon
                 )
                 notes.add(newNote)
                 val noteLocation = Location("")
@@ -619,8 +716,9 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             val selectedDate = Date(date)
             if (editingNote != null) {
                 editingNote!!.relatedDate = selectedDate
-                saveNote()
+                // You can optionally update a view in the popup to show the selected date
             } else {
+                newNoteDate = selectedDate
                 selectedLocation?.let {
                     val tempLocation = Location("")
                     tempLocation.latitude = it.latitude
@@ -644,21 +742,32 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         val dialogView = layoutInflater.inflate(R.layout.icon_picker_popup, null)
         val iconGrid = dialogView.findViewById<GridView>(R.id.icon_grid)
         iconGrid.adapter = iconAdapter
+        val iconPreview = popUp.findViewById<ImageView>(R.id.icon_preview)
 
         val dialog = AlertDialog.Builder(this)
             .setTitle("Select Icon")
             .setView(dialogView)
             .setNegativeButton("Cancel", null)
             .setPositiveButton("No Icon") { _, _ ->
-                editingNote?.icon = null
-                showEditPopup()
+                if (editingNote != null) {
+                    editingNote?.icon = null
+                } else {
+                    newNoteIcon = null
+                }
+                iconPreview.visibility = View.GONE
             }
             .create()
 
         iconGrid.setOnItemClickListener { _, _, position, _ ->
-            editingNote?.icon = drawableResources[position]
+            val selectedIcon = drawableResources[position]
+            if (editingNote != null) {
+                editingNote?.icon = selectedIcon
+            } else {
+                newNoteIcon = selectedIcon
+            }
+            iconPreview.setImageResource(selectedIcon)
+            iconPreview.visibility = View.VISIBLE
             dialog.dismiss()
-            showEditPopup()
         }
 
         dialog.show()
@@ -675,6 +784,46 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             R.drawable.shape_rounded_square,
             R.drawable.icon_background
         )
-        return R.drawable::class.java.fields.map { it.getInt(null) }.filter { !unwantedDrawables.contains(it) }
+        return R.drawable::class.java.fields.map { it.getInt(null) }.filter { resId ->
+            val resourceName = resources.getResourceEntryName(resId)
+            !unwantedDrawables.contains(resId) && !resourceName.startsWith("abc_")
+        }
+    }
+
+    private fun showInfoWindow(note: Note) {
+        maplibreMap.getStyle { style ->
+            val sourceId = "info-window-source-${note.id}"
+            val layerId = "info-window-layer-${note.id}"
+
+            val feature = Feature.fromGeometry(Point.fromLngLat(note.coordinates.longitude, note.coordinates.latitude))
+            feature.addStringProperty("text", note.text)
+
+            val source = GeoJsonSource(sourceId, FeatureCollection.fromFeatures(arrayOf(feature)))
+            style.addSource(source)
+            val markerColor = ColorUtils.getColorForDate(this, note.relatedDate)
+            val haloColor = Color.argb(128, Color.red(markerColor), Color.green(markerColor), Color.blue(markerColor))
+
+            val symbolLayer = SymbolLayer(layerId, sourceId)
+                .withProperties(
+                    textField(get("text")),
+                    textColor(ContextCompat.getColor(this, R.color.black)),
+                    textSize(14f),
+                    textAnchor(Property.TEXT_ANCHOR_BOTTOM),
+                    textOffset(arrayOf(0f, -2.5f)),
+                    textHaloColor(markerColor),
+                    textHaloWidth(100f),
+                    textJustify(Property.TEXT_JUSTIFY_LEFT)
+                )
+            style.addLayer(symbolLayer)
+        }
+    }
+
+    private fun removeInfoWindows() {
+        maplibreMap.getStyle { style ->
+            val layersToRemove = style.layers.filter { it.id.startsWith("info-window-layer-") }
+            val sourcesToRemove = style.sources.filter { it.id.startsWith("info-window-source-") }
+            layersToRemove.forEach { style.removeLayer(it) }
+            sourcesToRemove.forEach { style.removeSource(it) }
+        }
     }
 }
