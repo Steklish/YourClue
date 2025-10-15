@@ -1,5 +1,6 @@
 package com.example.tstproj
 
+import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
@@ -43,15 +44,22 @@ class CalendarSelectFiltersActivity : AppCompatActivity() {
         }
 
         binding.selectDateRangeButton.setOnClickListener {
+            // Get default dates from extras or use current month/today
+            val defaultStartDate = if(intent.hasExtra("lastSelectedStartDate")) {
+                intent.getLongExtra("lastSelectedStartDate", 0)
+            } else {
+                MaterialDatePicker.thisMonthInUtcMilliseconds()
+            }
+            val defaultEndDate = if(intent.hasExtra("lastSelectedEndDate")) {
+                intent.getLongExtra("lastSelectedEndDate", 0)
+            } else {
+                MaterialDatePicker.todayInUtcMilliseconds()
+            }
+            
             val dateRangePicker = MaterialDatePicker.Builder.dateRangePicker()
                 .setTheme(R.style.CustomCalendar)
                 .setTitleText("Select dates")
-                .setSelection(
-                    Pair(
-                        MaterialDatePicker.thisMonthInUtcMilliseconds(),
-                        MaterialDatePicker.todayInUtcMilliseconds()
-                    )
-                )
+                .setSelection(Pair(defaultStartDate, defaultEndDate))
                 .build()
 
             dateRangePicker.addOnPositiveButtonClickListener { range ->
@@ -72,6 +80,7 @@ class CalendarSelectFiltersActivity : AppCompatActivity() {
         }
     }
 
+    @SuppressLint("GestureBackNavigation")
     override fun onBackPressed() {
         if (dataChanged) {
             setResult(Activity.RESULT_OK)

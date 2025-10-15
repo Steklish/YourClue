@@ -94,6 +94,10 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private var startDateFilter: Date? = null
     private var endDateFilter: Date? = null
     private var shouldApplyDefaultFilter = true
+    
+    // Store last selected date range for calendar picker
+    private var lastSelectedStartDate: Date? = null
+    private var lastSelectedEndDate: Date? = null
 
     // Temp state for new notes
     private var newNoteIcon: Int? = null
@@ -108,6 +112,9 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             if (intent?.hasExtra("startDate") == true && intent.hasExtra("endDate")) {
                 startDateFilter = Date(intent.getLongExtra("startDate", 0))
                 endDateFilter = Date(intent.getLongExtra("endDate", 0))
+                // Remember the selected dates for future use
+                lastSelectedStartDate = startDateFilter
+                lastSelectedEndDate = endDateFilter
             } else {
                 // Apply default current month filter if no custom range was set
                 setDefaultCurrentMonthFilter()
@@ -227,6 +234,13 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         }
         container.findViewById<MaterialButton>(R.id.open_calendar_button).setOnClickListener {
             val intent = Intent(this, CalendarSelectFiltersActivity::class.java)
+            // Pass last selected dates as extras if they exist
+            lastSelectedStartDate?.let { startDate ->
+                lastSelectedEndDate?.let { endDate ->
+                    intent.putExtra("lastSelectedStartDate", startDate.time)
+                    intent.putExtra("lastSelectedEndDate", endDate.time)
+                }
+            }
             calendarActivityResultLauncher.launch(intent)
         }
         container.findViewById<MaterialButton>(R.id.clear_filtering_button).setOnClickListener {
@@ -1209,13 +1223,15 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private fun clearAllFilters() {
         startDateFilter = null
         endDateFilter = null
+        // Clear the search as well
+        searchInput.setText("")
+        searchResults = emptySet()
+        // Also clear the last selected dates so the calendar picker defaults to current month again
+        lastSelectedStartDate = null
+        lastSelectedEndDate = null
+        
         // Update the map to show all notes again
-        val query = searchInput.text.toString().trim()
-        if (query.isNotEmpty()) {
-            performSearch() // Apply only the search filter
-        } else {
-            showMarkersAndLinks() // Show all notes
-        }
+        showMarkersAndLinks()
     }
     
     private fun setDefaultCurrentMonthFilter() {
