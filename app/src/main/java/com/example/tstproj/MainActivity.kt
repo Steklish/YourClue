@@ -83,7 +83,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private lateinit var storageHandler: JsonStorage
     private var notes: MutableList<Note> = mutableListOf()
     private var searchResults: Set<String> = emptySet() // Store IDs of notes that match the search
-    private var openInfoWindows: MutableSet<String> = mutableSetOf() // Store IDs of notes with currently open info windows
     private var editingNote: Note? = null
     private var linkingNote: Note? = null
 
@@ -254,19 +253,10 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 formatDate(note.creationDate).lowercase().contains(lowerQuery)
             }
             searchResults = matchingNotes.map { it.id }.toSet()
-            
-            // Close info windows for non-matching notes
-            val nonMatchingNoteIds = openInfoWindows.filter { !searchResults.contains(it) }
-            nonMatchingNoteIds.forEach { noteId ->
-                removeInfoWindowForNote(noteId)
-            }
+
         }
         showMarkersAndLinks() // Refresh the map to show all notes with transparency for non-matching ones
-        
-        // If searching, show text clouds for all matching notes
-        if (query.isNotEmpty()) {
-            showAllMatchingNotesTextClouds()
-        }
+
     }
 
     private fun formatDate(date: Date): String {
@@ -349,17 +339,25 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 return@addOnMapClickListener false
             }
 
-            removeInfoWindows()
             if (features.isNotEmpty()) {
                 val featureId = features[0].getStringProperty("id")
+                Log.d("InfoWindowDebug", "Feature clicked with ID: $featureId")
                 if (featureId != null) {
                     val noteId = featureId.substringAfter("note-")
+                    Log.d("InfoWindowDebug", "Extracted note ID: $noteId")
                     val note = notes.find { it.id == noteId }
                     if (note != null) {
-                        showInfoWindow(note)
+                        // Toggle the info window for the clicked note
+                        Toast.makeText(this, note.text, Toast.LENGTH_SHORT).show()
                         return@addOnMapClickListener true
+                    } else {
+                        Log.d("InfoWindowDebug", "Note not found for ID: $noteId")
                     }
+                } else {
+                    Log.d("InfoWindowDebug", "Feature ID is null")
                 }
+            } else {
+                Log.d("InfoWindowDebug", "No features found at click location")
             }
 
             selectedLocation = point
@@ -734,22 +732,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     }
 
     private fun showMarkersAndLinks() {
-        // Store the original state before clearing
-        val originalOpenInfoWindows = HashSet(openInfoWindows)
-        
-        // Determine which info windows should be open based on search state
-        val infoWindowsToReopen = mutableSetOf<String>()
-        if (searchResults.isNotEmpty()) {
-            // During search, only keep info windows open for matching notes that were already open
-            infoWindowsToReopen.addAll(originalOpenInfoWindows.filter { searchResults.contains(it) })
-        } else {
-            // If no search, keep only the previously opened info windows
-            infoWindowsToReopen.addAll(originalOpenInfoWindows)
-        }
-        
-        // Clear all open info windows before refreshing markers and links
-        removeInfoWindows()
-        
+
         if (!::maplibreMap.isInitialized) return
         maplibreMap.getStyle { style ->
             val layersToRemove = style.layers.filter { it.id.startsWith("note-") || it.id.startsWith("link-layer-") }
@@ -781,14 +764,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 }
             }
         }
-        
-        // Reopen info windows that should remain open
-        infoWindowsToReopen.forEach { noteId ->
-            val note = notes.find { it.id == noteId }
-            if (note != null) {
-                showInfoWindow(note) // This will add the note back to openInfoWindows
-            }
-        }
+
     }
 
     private val requestPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
@@ -982,86 +958,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         return R.drawable::class.java.fields.map { it.getInt(null) }.filter { resId ->
             val resourceName = resources.getResourceEntryName(resId)
             !unwantedDrawables.contains(resId) && !resourceName.startsWith("abc_")
-        }
-    }
-
-    private fun showInfoWindow(note: Note) {
-        val markerColor = ColorUtils.getColorForDate(this, note.relatedDate)
-        maplibreMap.getStyle { style ->
-            val sourceId = "info-window-source-${note.id}"
-            val layerId = "info-window-layer-${note.id}"
-            val imageId = "info-window-background"
-            val shape = R.drawable.info_window_background
-
-            if (style.getImage(imageId) == null) {
-                val backgroundDrawable = ContextCompat.getDrawable(this, shape)
-                backgroundDrawable.setTint(markerColor)
-                val bitmap = Bitmap.createBitmap(512, 521, Bitmap.Config.ARGB_8888)
-                val canvas = Canvas(bitmap)
-                backgroundDrawable?.setBounds(0, 0, canvas.width, canvas.height)
-                backgroundDrawable?.draw(canvas)
-                style.addImage(imageId, bitmap, false)
-            }
-
-            val feature = Feature.fromGeometry(Point.fromLngLat(note.coordinates.longitude, note.coordinates.latitude))
-            feature.addStringProperty("text", note.text)
-
-            val source = GeoJsonSource(sourceId, FeatureCollection.fromFeatures(arrayOf(feature)))
-            style.addSource(source)
-
-            val symbolLayer = SymbolLayer(layerId, sourceId)
-                .withProperties(
-                    iconImage(imageId),
-                    iconTextFit(Property.ICON_TEXT_FIT_BOTH),
-                    iconTextFitPadding(arrayOf(10f, 20f, 10f, 20f)),
-                    iconAllowOverlap(true),
-                    iconIgnorePlacement(true),
-                    textField(get("text")),
-                    textColor(ContextCompat.getColor(this, R.color.black)),
-                    textSize(14f),
-                    textJustify(Property.TEXT_JUSTIFY_LEFT),
-                    iconAnchor(Property.ICON_ANCHOR_BOTTOM),
-                    iconOffset(arrayOf(0f, 0f))
-                )
-            style.addLayer(symbolLayer)
-        }
-        // Track that this info window is now open
-        openInfoWindows.add(note.id)
-    }
-
-    private fun removeInfoWindows() {
-        maplibreMap.getStyle { style ->
-            val layersToRemove = style.layers.filter { it.id.startsWith("info-window-layer-") }
-            val sourcesToRemove = style.sources.filter { it.id.startsWith("info-window-source-") }
-            layersToRemove.forEach { style.removeLayer(it) }
-            sourcesToRemove.forEach { style.removeSource(it) }
-        }
-        // Clear the tracking since all info windows are being removed
-        openInfoWindows.clear()
-    }
-    
-    private fun removeInfoWindowForNote(noteId: String) {
-        maplibreMap.getStyle { style ->
-            val layerId = "info-window-layer-$noteId"
-            val sourceId = "info-window-source-$noteId"
-            
-            style.getLayer(layerId)?.let { style.removeLayer(it) }
-            style.getSource(sourceId)?.let { style.removeSource(it) }
-        }
-        // Remove from tracking
-        openInfoWindows.remove(noteId)
-    }
-    
-    private fun showAllMatchingNotesTextClouds() {
-        // Show text clouds for all matching notes
-        searchResults.forEach { noteId ->
-            // Only show if not already open
-            if (!openInfoWindows.contains(noteId)) {
-                val note = notes.find { it.id == noteId }
-                if (note != null) {
-                    showInfoWindow(note)
-                }
-            }
         }
     }
 }
