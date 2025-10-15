@@ -1021,9 +1021,14 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         // Set the note text and date
         val noteText = infoView.findViewById<TextView>(R.id.info_window_text)
         val noteDate = infoView.findViewById<TextView>(R.id.info_window_date)
+        val colorIndicator = infoView.findViewById<View>(R.id.info_window_color_indicator)
         
         noteText.text = note.text
         noteDate.text = formatDate(note.relatedDate)
+        
+        // Set the color indicator to match the note's marker color
+        val noteColor = ColorUtils.getColorForDate(this, note.relatedDate)
+        colorIndicator.setBackgroundColor(noteColor)
         
         // Create and configure the PopupWindow
         infoWindowPopup = PopupWindow(
