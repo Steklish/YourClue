@@ -54,6 +54,7 @@ import androidx.cardview.widget.CardView
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.geometry.LatLngBounds
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.OnMapReadyCallback
@@ -265,6 +266,25 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
         }
         showMarkersAndLinks() // Refresh the map to show all notes with transparency for non-matching ones
+        
+        // Zoom to show all matching notes if search results exist
+        if (query.isNotEmpty() && searchResults.isNotEmpty()) {
+            // Post to run after the markers are updated to ensure the zoom works properly
+            mapView.post {
+                zoomToMatchingNotes()
+                
+                // Show info window for the first matching note
+                val firstMatchingNote = notes.find { note -> searchResults.contains(note.id) }
+                if (firstMatchingNote != null) {
+                    // Find the LatLng for the first matching note to show its info window
+                    val position = LatLng(
+                        firstMatchingNote.coordinates.latitude,
+                        firstMatchingNote.coordinates.longitude
+                    )
+                    showInfoWindowForNote(firstMatchingNote, position)
+                }
+            }
+        }
 
     }
 
@@ -1051,5 +1071,56 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             screenPosition.x.toInt(),
             screenPosition.y.toInt() - 200 // Adjust to position above the marker
         )
+    }
+    
+    private fun zoomToMatchingNotes() {
+        if (searchResults.isEmpty()) return
+        
+        // Find all matching notes
+        val matchingNotes = notes.filter { note -> searchResults.contains(note.id) }
+        
+        if (matchingNotes.isEmpty()) return
+        
+        // Find the bounds of all matching notes
+        var minLat = Double.MAX_VALUE
+        var maxLat = -Double.MAX_VALUE
+        var minLon = Double.MAX_VALUE
+        var maxLon = -Double.MAX_VALUE
+        
+        for (note in matchingNotes) {
+            val lat = note.coordinates.latitude
+            val lon = note.coordinates.longitude
+            
+            if (lat < minLat) minLat = lat
+            if (lat > maxLat) maxLat = lat
+            if (lon < minLon) minLon = lon
+            if (lon > maxLon) maxLon = lon
+        }
+        
+        // Add padding around the bounds
+        val padding = 0.01 // Degrees - adjust for desired padding
+        
+        val southwest = LatLng(minLat - padding, minLon - padding)
+        val northeast = LatLng(maxLat + padding, maxLon + padding)
+        
+        // Animate to the bounds of the matching notes
+        val bounds = org.maplibre.android.geometry.LatLngBounds.from(
+            northeast.latitude,
+            northeast.longitude,
+            southwest.latitude,
+            southwest.longitude
+        )
+        
+        try {
+            maplibreMap.animateCamera(
+                CameraUpdateFactory.newLatLngBounds(
+                    bounds,
+                    100 // padding in pixels
+                ),
+                1000 // duration in milliseconds
+            )
+        } catch (ex: Exception) {
+            Log.e("ZoomError", "Error zooming to bounds: ${ex.message}")
+        }
     }
 }
