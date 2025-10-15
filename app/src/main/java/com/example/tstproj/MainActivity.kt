@@ -48,6 +48,9 @@ import com.google.android.material.button.MaterialButton
 import com.google.android.material.datepicker.MaterialDatePicker
 import com.google.gson.reflect.TypeToken
 import org.maplibre.android.MapLibre
+import android.view.LayoutInflater
+import android.widget.PopupWindow
+import androidx.cardview.widget.CardView
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
@@ -85,6 +88,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private var searchResults: Set<String> = emptySet() // Store IDs of notes that match the search
     private var editingNote: Note? = null
     private var linkingNote: Note? = null
+    private var infoWindowPopup: PopupWindow? = null
+    private var currentInfoNote: Note? = null
 
     // Temp state for new notes
     private var newNoteIcon: Int? = null
@@ -140,6 +145,10 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 when {
                     popUp.visibility == View.VISIBLE -> {
                         hideEditPopup()
+                    }
+                    infoWindowPopup?.isShowing == true -> {
+                        infoWindowPopup?.dismiss()
+                        currentInfoNote = null
                     }
                     selectedLocation != null -> {
                         removeMarker("temp_marker")
@@ -336,6 +345,11 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 }
                 linkingNote = null
                 Toast.makeText(this, "Link creation cancelled", Toast.LENGTH_SHORT).show()
+                // Dismiss info window if clicking elsewhere during linking
+                if (infoWindowPopup?.isShowing == true) {
+                    infoWindowPopup?.dismiss()
+                    currentInfoNote = null
+                }
                 return@addOnMapClickListener false
             }
 
@@ -347,8 +361,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                     Log.d("InfoWindowDebug", "Extracted note ID: $noteId")
                     val note = notes.find { it.id == noteId }
                     if (note != null) {
-                        // Toggle the info window for the clicked note
-                        Toast.makeText(this, note.text, Toast.LENGTH_SHORT).show()
+                        // Show the info window for the clicked note
+                        showInfoWindowForNote(note, point)
                         return@addOnMapClickListener true
                     } else {
                         Log.d("InfoWindowDebug", "Note not found for ID: $noteId")
@@ -358,6 +372,11 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 }
             } else {
                 Log.d("InfoWindowDebug", "No features found at click location")
+                // Dismiss info window if clicking elsewhere on the map
+                if (infoWindowPopup?.isShowing == true) {
+                    infoWindowPopup?.dismiss()
+                    currentInfoNote = null
+                }
             }
 
             selectedLocation = point
@@ -383,6 +402,11 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                     val noteId = featureId.substringAfter("note-")
                     val note = notes.find { it.id == noteId }
                     if (note != null) {
+                        // Dismiss the info window if a note is long-pressed for editing
+                        if (infoWindowPopup?.isShowing == true) {
+                            infoWindowPopup?.dismiss()
+                            currentInfoNote = null
+                        }
                         editingNote = note
                         showEditPopup()
                         return@addOnMapLongClickListener true
@@ -419,6 +443,11 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         if (!::maplibreMap.isInitialized) {
             Log.w("MainActivity", "Map is not ready yet, cannot show popup.")
             return
+        }
+        // Dismiss the info window when showing the edit popup
+        if (infoWindowPopup?.isShowing == true) {
+            infoWindowPopup?.dismiss()
+            currentInfoNote = null
         }
         createNoteButton.visibility = View.GONE
         val noteTextInput = popUp.findViewById<EditText>(R.id.note_text_input)
@@ -510,6 +539,11 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
     fun hideEditPopup() {
         createNoteButton.visibility = View.VISIBLE
+        // Dismiss the info window when hiding the edit popup
+        if (infoWindowPopup?.isShowing == true) {
+            infoWindowPopup?.dismiss()
+            currentInfoNote = null
+        }
         blurredBackground.animate().alpha(0f).setDuration(100).setListener(object : AnimatorListenerAdapter() {
             override fun onAnimationEnd(animation: Animator) {
                 blurredBackground.visibility = View.GONE
@@ -732,6 +766,11 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     }
 
     private fun showMarkersAndLinks() {
+        // Dismiss info window when markers are refreshed
+        if (infoWindowPopup?.isShowing == true) {
+            infoWindowPopup?.dismiss()
+            currentInfoNote = null
+        }
 
         if (!::maplibreMap.isInitialized) return
         maplibreMap.getStyle { style ->
@@ -959,5 +998,53 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             val resourceName = resources.getResourceEntryName(resId)
             !unwantedDrawables.contains(resId) && !resourceName.startsWith("abc_")
         }
+    }
+    
+    private fun showInfoWindowForNote(note: Note, position: LatLng) {
+        // Close any existing info window
+        if (infoWindowPopup?.isShowing == true) {
+            infoWindowPopup?.dismiss()
+        }
+        
+        // If clicking the same note again, close the info window and return
+        if (currentInfoNote?.id == note.id) {
+            currentInfoNote = null
+            return
+        }
+        
+        currentInfoNote = note
+        
+        // Inflate the info window layout
+        val inflater = LayoutInflater.from(this)
+        val infoView = inflater.inflate(R.layout.map_info_window, null)
+        
+        // Set the note text and date
+        val noteText = infoView.findViewById<TextView>(R.id.info_window_text)
+        val noteDate = infoView.findViewById<TextView>(R.id.info_window_date)
+        
+        noteText.text = note.text
+        noteDate.text = formatDate(note.relatedDate)
+        
+        // Create and configure the PopupWindow
+        infoWindowPopup = PopupWindow(
+            infoView,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            true
+        )
+        
+        // Set background and elevation
+        infoWindowPopup?.setBackgroundDrawable(null)
+        
+        // Calculate position on screen based on map coordinates
+        val screenPosition = maplibreMap.projection.toScreenLocation(position)
+        
+        // Show the popup at the calculated position
+        infoWindowPopup?.showAtLocation(
+            mapView,
+            0, // No gravity - we'll position it manually 
+            screenPosition.x.toInt(),
+            screenPosition.y.toInt() - 200 // Adjust to position above the marker
+        )
     }
 }
