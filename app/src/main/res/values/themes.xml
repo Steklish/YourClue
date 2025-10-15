@@ -24,6 +24,26 @@
         <item name="cornerRadius">5dp</item>
     </style>
 
+    <style name="SearchBarStyle" parent="Widget.MaterialComponents.TextInputLayout.OutlinedBox">
+        <item name="boxStrokeColor">@color/primary_color</item>
+        <item name="boxStrokeWidthFocused">2dp</item>
+        <item name="boxCornerRadiusTopStart">8dp</item>
+        <item name="boxCornerRadiusTopEnd">8dp</item>
+        <item name="boxCornerRadiusBottomStart">8dp</item>
+        <item name="boxCornerRadiusBottomEnd">8dp</item>
+        <item name="startIconTint">@color/primary_color</item>
+        <item name="endIconTint">@color/primary_color</item>
+        <item name="hintTextAppearance">@style/TextAppearance.App.SearchHint</item>
+        <item name="hintTextColor">@color/primary_color</item>
+        <item name="android:textColor">@color/dark_grey</item>
+        <item name="boxBackgroundColor">@color/white</item>
+    </style>
+
+    <style name="TextAppearance.App.SearchHint" parent="TextAppearance.MaterialComponents.Caption">
+        <item name="android:textColor">@color/primary_color</item>
+        <item name="android:textSize">14sp</item>
+    </style>
+
     <style name="CustomCalendar" parent="ThemeOverlay.MaterialComponents.MaterialCalendar">
         <item name="colorPrimary">@color/primary_color</item>
         <item name="colorOnPrimary">@color/white</item>

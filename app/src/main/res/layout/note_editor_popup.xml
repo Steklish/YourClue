@@ -74,7 +74,7 @@
                 app:layout_constraintEnd_toEndOf="parent"
                 app:layout_constraintStart_toStartOf="parent"
                 app:layout_constraintTop_toTopOf="parent"
-                tools:text="@string/lorem_ipsum"/>
+                tools:text="HI THRER"/>
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/related_date_button"
@@ -86,56 +86,31 @@
                 android:textColor="@color/dark_grey"
                 app:icon="@android:drawable/ic_menu_my_calendar"
                 app:iconTint="@color/grey"
+                app:layout_constraintBottom_toTopOf="@+id/set_icon_button"
                 app:layout_constraintEnd_toEndOf="parent"
                 app:layout_constraintStart_toStartOf="parent"
                 app:layout_constraintTop_toBottomOf="@+id/note_text_input" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/add_image_button"
-                style="@style/Base.ButtonWhite"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:text="Add Image"
-                android:textColor="@color/dark_grey"
-                app:icon="@android:drawable/ic_menu_camera"
-                app:iconTint="@color/grey"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@+id/related_date_button" />
-
-            <ImageView
-                android:id="@+id/image_preview"
-                android:layout_width="80dp"
-                android:layout_height="80dp"
-                android:layout_marginTop="8dp"
-                android:background="@color/white_transparent"
-                android:scaleType="centerCrop"
-                android:visibility="gone"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@+id/add_image_button"
-                tools:visibility="visible" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/set_icon_button"
                 style="@style/Base.ButtonWhite"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
                 android:text="Set Icon"
                 android:textColor="@color/dark_grey"
                 app:icon="@android:drawable/ic_menu_gallery"
                 app:iconTint="@color/grey"
                 app:layout_constraintEnd_toEndOf="parent"
                 app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@+id/image_preview" />
+                app:layout_constraintTop_toBottomOf="@id/related_date_button"
+                app:layout_constraintBottom_toTopOf="@id/icon_preview"
+                tools:layout_editor_absoluteY="327dp" />
 
             <ImageView
                 android:id="@+id/icon_preview"
                 android:layout_width="40dp"
                 android:layout_height="40dp"
-                android:tint="@color/dark_grey"
+                app:tint="@color/dark_grey"
                 android:layout_marginTop="8dp"
                 android:visibility="gone"
                 app:layout_constraintEnd_toEndOf="parent"

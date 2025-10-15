@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">YouClue</string>
+    <string name="title_activity_main">MainActivity</string>
+    <string name="addmarker">Добавить заметку</string>
+    <string name="apply_date_filters">Применить</string>
+    <string name="select_date">Выбрать дату</string>
+    <string name="save_note">Сохранить заметку</string>
+    <string name="delete">Удалить</string>
+    <string name="linked_notes">Связанные заметки</string>
+    <string name="link_note">Связать заметку</string>
+</resources>

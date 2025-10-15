@@ -10,6 +10,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.drawable.LayerDrawable
 import android.location.Location
@@ -75,10 +76,14 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private lateinit var popUp: ConstraintLayout
     private lateinit var container: ConstraintLayout
     private lateinit var blurredBackground: ImageView
+    private lateinit var searchInputLayout: com.google.android.material.textfield.TextInputLayout
+    private lateinit var searchInput: com.google.android.material.textfield.TextInputEditText
     var styleUrl: String? = null
     private var selectedLocation: LatLng? = null
     private lateinit var storageHandler: JsonStorage
     private var notes: MutableList<Note> = mutableListOf()
+    private var searchResults: Set<String> = emptySet() // Store IDs of notes that match the search
+    private var openInfoWindows: MutableSet<String> = mutableSetOf() // Store IDs of notes with currently open info windows
     private var editingNote: Note? = null
     private var linkingNote: Note? = null
 
@@ -91,7 +96,13 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private val calendarActivityResultLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
             loadNotes()
-            showMarkersAndLinks()
+            // Apply current search filter if there's an active search
+            val query = searchInput.text.toString().trim()
+            if (query.isNotEmpty()) {
+                performSearch()
+            } else {
+                showMarkersAndLinks()
+            }
         }
     }
 
@@ -107,6 +118,11 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         popUp = findViewById(R.id.popup)
         container = findViewById(R.id.container)
         blurredBackground = findViewById(R.id.blurred_background)
+        searchInputLayout = findViewById(R.id.search_input_layout)
+        searchInput = findViewById(R.id.search_input)
+
+        // Set up search functionality
+        setupSearchFunctionality()
 
         createNoteButton.isEnabled = false
         createNoteButton.alpha = 0.5f
@@ -194,6 +210,75 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         }
     }
 
+    private fun setupSearchFunctionality() {
+        searchInput.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH) {
+                performSearch()
+                true
+            } else {
+                false
+            }
+        }
+
+        searchInput.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+
+            override fun afterTextChanged(s: android.text.Editable?) {
+                // Add a small delay to avoid searching on every keystroke
+                searchInput.removeCallbacks(searchRunnable)
+                searchInput.postDelayed(searchRunnable, 300)
+            }
+        })
+    }
+
+    private val searchRunnable = Runnable {
+        performSearch()
+    }
+
+    private fun performSearch() {
+        val query = searchInput.text.toString().trim()
+        if (query.isEmpty()) {
+            // Show all notes normally when search is empty
+            searchResults = emptySet()
+        } else {
+            // Find notes that match the search query
+            val lowerQuery = query.lowercase()
+            val matchingNotes = notes.filter { note ->
+                // Check if note text contains the query
+                note.text.lowercase().contains(lowerQuery) ||
+                // Check if related date contains the query (searching by date)
+                formatDate(note.relatedDate).lowercase().contains(lowerQuery) ||
+                // Also search in creation date
+                formatDate(note.creationDate).lowercase().contains(lowerQuery)
+            }
+            searchResults = matchingNotes.map { it.id }.toSet()
+            
+            // Close info windows for non-matching notes
+            val nonMatchingNoteIds = openInfoWindows.filter { !searchResults.contains(it) }
+            nonMatchingNoteIds.forEach { noteId ->
+                removeInfoWindowForNote(noteId)
+            }
+        }
+        showMarkersAndLinks() // Refresh the map to show all notes with transparency for non-matching ones
+        
+        // If searching, show text clouds for all matching notes
+        if (query.isNotEmpty()) {
+            showAllMatchingNotesTextClouds()
+        }
+    }
+
+    private fun formatDate(date: Date): String {
+        val dateFormat = java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.getDefault())
+        return dateFormat.format(date)
+    }
+    
+    private fun applyAlphaToColor(color: Int, alpha: Float): Int {
+        val alphaInt = (255 * alpha).toInt().coerceIn(0, 255)
+        return (color and 0x00FFFFFF) or (alphaInt shl 24)
+    }
+
     override fun onMapReady(map: MapLibreMap) {
         this.maplibreMap = map
         val key = BuildConfig.MAPTILER_API_KEY
@@ -214,7 +299,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                         .build()
                     addMarker(
                         location,
-                        0.08f,
+                        0.04f,
                         ContextCompat.getColor(this, R.color.primary_color),
                         "self_marker"
                     )
@@ -246,7 +331,13 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                                 clickedNote.linkedNotes?.add(linkingNote!!.id)
                             }
                             storageHandler.writeJsonToFile("notes.json", notes)
-                            drawLinks()
+                            // Apply current search filter if there's an active search
+                            val query = searchInput.text.toString().trim()
+                            if (query.isNotEmpty()) {
+                                performSearch()
+                            } else {
+                                showMarkersAndLinks()
+                            }
                             Toast.makeText(this, "Notes linked!", Toast.LENGTH_SHORT).show()
                             linkingNote = null
                             return@addOnMapClickListener true
@@ -275,7 +366,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             val tempLocation = Location("")
             tempLocation.latitude = point.latitude
             tempLocation.longitude = point.longitude
-            addMarker(tempLocation, 0.08f, ContextCompat.getColor(this, R.color.new_marker_color), "temp_marker", R.drawable.cross_round_svgrepo_com)
+            addMarker(tempLocation, 0.08f, ContextCompat.getColor(this, R.color.new_marker_color), "temp_marker", R.drawable.question_circle_svgrepo_com)
             createNoteButton.isEnabled = true
             createNoteButton.alpha = 1.0f
             true
@@ -352,7 +443,13 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             deleteButton.setOnClickListener {
                 notes.remove(editingNote!!)
                 storageHandler.writeJsonToFile("notes.json", notes)
-                showMarkersAndLinks()
+                // Apply current search filter if there's an active search
+                val query = searchInput.text.toString().trim()
+                if (query.isNotEmpty()) {
+                    performSearch()
+                } else {
+                    showMarkersAndLinks()
+                }
                 hideEditPopup()
             }
 
@@ -362,7 +459,13 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                     editingNote?.linkedNotes?.remove(unlinkedNote.id)
                     unlinkedNote.linkedNotes?.remove(editingNote!!.id)
                     storageHandler.writeJsonToFile("notes.json", notes)
-                    showMarkersAndLinks()
+                    // Apply current search filter if there's an active search
+                    val query = searchInput.text.toString().trim()
+                    if (query.isNotEmpty()) {
+                        performSearch()
+                    } else {
+                        showMarkersAndLinks()
+                    }
                     showEditPopup() // Refresh the popup
                 }
                 linkedNotesRecyclerView.adapter = adapter
@@ -400,6 +503,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
             popUp.alpha = 0f
             popUp.scaleX = 0.8f
+
             popUp.scaleY = 0.8f
             popUp.visibility = View.VISIBLE
             popUp.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(300).setListener(null)
@@ -493,7 +597,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                             iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_VIEWPORT),
 
                             // 2. Move icon up by fixed pixels
-                            iconTranslate(arrayOf(0f, -20f)),
+                            iconTranslate(arrayOf(0f, -25f)),
 
                             // 3. THE FINAL FIX: Ensure the translation is always "UP" relative
                             // to the SCREEN, not the map.
@@ -540,6 +644,37 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         }
     }
 
+    private fun drawLinksForVisibleNotes() {
+        maplibreMap.getStyle { style ->
+            val layersToRemove = style.layers.filter { it.id.startsWith("link-layer-") }
+            val sourcesToRemove = style.sources.filter { it.id.startsWith("link-source-") }
+            layersToRemove.forEach { style.removeLayer(it) }
+            sourcesToRemove.forEach { style.removeSource(it) }
+
+            val drawnLinks = mutableSetOf<String>()
+
+            // Only draw links between notes that are currently visible (matching search or no search)
+            notes.forEach { note1 ->
+                // Only process this note if it's visible
+                val isNote1Visible = searchResults.isEmpty() || searchResults.contains(note1.id)
+                if (isNote1Visible) {
+                    note1.linkedNotes?.forEach { note2Id ->
+                        // Only draw the link if both notes are visible
+                        val isNote2Visible = searchResults.isEmpty() || searchResults.contains(note2Id)
+                        val note2 = notes.find { it.id == note2Id }
+                        if (note2 != null && isNote2Visible) {
+                            val linkKey = if (note1.id < note2.id) "${note1.id}-${note2.id}" else "${note2.id}-${note1.id}"
+                            if (!drawnLinks.contains(linkKey)) {
+                                drawLineBetweenNotes(note1, note2)
+                                drawnLinks.add(linkKey)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     private fun drawLineBetweenNotes(note1: Note, note2: Note) {
         maplibreMap.getStyle { style ->
             val linkId = "link-${note1.id}-${note2.id}"
@@ -558,8 +693,22 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             val geoJsonSource = GeoJsonSource(sourceId, lineString, geoJsonOptions)
             style.addSource(geoJsonSource)
 
-            val color1 = ColorUtils.getColorForDate(this, note1.relatedDate)
-            val color2 = ColorUtils.getColorForDate(this, note2.relatedDate)
+            // Determine if the link should be visible based on search results
+            val isLinkVisible = searchResults.isEmpty() || 
+                (searchResults.contains(note1.id) || searchResults.contains(note2.id))
+            
+            val color1 = if (isLinkVisible) {
+                ColorUtils.getColorForDate(this, note1.relatedDate)
+            } else {
+                // Make the link transparent if neither note matches search
+                applyAlphaToColor(ColorUtils.getColorForDate(this, note1.relatedDate), 0.3f)
+            }
+            val color2 = if (isLinkVisible) {
+                ColorUtils.getColorForDate(this, note2.relatedDate)
+            } else {
+                // Make the link transparent if neither note matches search
+                applyAlphaToColor(ColorUtils.getColorForDate(this, note2.relatedDate), 0.3f)
+            }
 
             val lineLayer = LineLayer(layerId, sourceId)
             if (color1 == color2) {
@@ -585,6 +734,22 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     }
 
     private fun showMarkersAndLinks() {
+        // Store the original state before clearing
+        val originalOpenInfoWindows = HashSet(openInfoWindows)
+        
+        // Determine which info windows should be open based on search state
+        val infoWindowsToReopen = mutableSetOf<String>()
+        if (searchResults.isNotEmpty()) {
+            // During search, only keep info windows open for matching notes that were already open
+            infoWindowsToReopen.addAll(originalOpenInfoWindows.filter { searchResults.contains(it) })
+        } else {
+            // If no search, keep only the previously opened info windows
+            infoWindowsToReopen.addAll(originalOpenInfoWindows)
+        }
+        
+        // Clear all open info windows before refreshing markers and links
+        removeInfoWindows()
+        
         if (!::maplibreMap.isInitialized) return
         maplibreMap.getStyle { style ->
             val layersToRemove = style.layers.filter { it.id.startsWith("note-") || it.id.startsWith("link-layer-") }
@@ -592,14 +757,36 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             layersToRemove.forEach { style.removeLayer(it) }
             sourcesToRemove.forEach { style.removeSource(it) }
 
-            drawLinks()
+            // Draw all links but only between notes that are visible (either matching search or no search active)
+            drawLinksForVisibleNotes()
 
             notes.forEach { note ->
                 val noteLocation = Location("")
                 noteLocation.latitude = note.coordinates.latitude
                 noteLocation.longitude = note.coordinates.longitude
-                val color = ColorUtils.getColorForDate(this, note.relatedDate)
-                addMarker(noteLocation, 0.08f, color, "note-${note.id}", note.icon)
+                
+                // Determine if the note should be highlighted or transparent
+                val isMatchingNote = searchResults.isEmpty() || searchResults.contains(note.id)
+                
+                if (isMatchingNote) {
+                    // Show matching/normal notes with original color
+                    val color = ColorUtils.getColorForDate(this, note.relatedDate)
+                    addMarker(noteLocation, 0.08f, color, "note-${note.id}", note.icon)
+                } else {
+                    // Show non-matching notes as 70% transparent and grey
+                    val greyColor = ContextCompat.getColor(this, R.color.grey)
+                    // Adjust alpha to make it 70% transparent (30% opaque)
+                    val transparentGreyColor = applyAlphaToColor(greyColor, 0.3f)
+                    addMarker(noteLocation, 0.08f, transparentGreyColor, "note-${note.id}", note.icon)
+                }
+            }
+        }
+        
+        // Reopen info windows that should remain open
+        infoWindowsToReopen.forEach { noteId ->
+            val note = notes.find { it.id == noteId }
+            if (note != null) {
+                showInfoWindow(note) // This will add the note back to openInfoWindows
             }
         }
     }
@@ -652,10 +839,10 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                     .target(LatLng(location.latitude, location.longitude))
                     .zoom(15.0)
                     .build()
+                Toast.makeText(this, "Found you!", Toast.LENGTH_SHORT).show()
             } else {
                 somethingWentWrongInfoMessage()
             }
-            Toast.makeText(this, "Found you!", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -693,7 +880,13 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             }
         }
         storageHandler.writeJsonToFile("notes.json", notes)
-        drawLinks()
+        // Apply current search filter if there's an active search
+        val query = searchInput.text.toString().trim()
+        if (query.isNotEmpty()) {
+            performSearch()
+        } else {
+            showMarkersAndLinks()
+        }
         hideEditPopup()
     }
 
@@ -776,13 +969,15 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private fun getAllDrawableResources(): List<Int> {
         val unwantedDrawables = setOf(
             R.drawable.button_background,
-            R.drawable.close_icon,
             R.drawable.delete_icon,
             R.drawable.delete_location,
             R.drawable.shape_button_prime_rounded_corners,
             R.drawable.shape_rounded_colors_popup,
             R.drawable.shape_rounded_square,
-            R.drawable.icon_background
+            R.drawable.icon_background,
+            R.drawable.ic_launcher_background,
+            R.drawable.ic_launcher_foreground,
+            R.drawable.yc
         )
         return R.drawable::class.java.fields.map { it.getInt(null) }.filter { resId ->
             val resourceName = resources.getResourceEntryName(resId)
@@ -791,31 +986,47 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     }
 
     private fun showInfoWindow(note: Note) {
+        val markerColor = ColorUtils.getColorForDate(this, note.relatedDate)
         maplibreMap.getStyle { style ->
             val sourceId = "info-window-source-${note.id}"
             val layerId = "info-window-layer-${note.id}"
+            val imageId = "info-window-background"
+            val shape = R.drawable.info_window_background
+
+            if (style.getImage(imageId) == null) {
+                val backgroundDrawable = ContextCompat.getDrawable(this, shape)
+                backgroundDrawable.setTint(markerColor)
+                val bitmap = Bitmap.createBitmap(512, 521, Bitmap.Config.ARGB_8888)
+                val canvas = Canvas(bitmap)
+                backgroundDrawable?.setBounds(0, 0, canvas.width, canvas.height)
+                backgroundDrawable?.draw(canvas)
+                style.addImage(imageId, bitmap, false)
+            }
 
             val feature = Feature.fromGeometry(Point.fromLngLat(note.coordinates.longitude, note.coordinates.latitude))
             feature.addStringProperty("text", note.text)
 
             val source = GeoJsonSource(sourceId, FeatureCollection.fromFeatures(arrayOf(feature)))
             style.addSource(source)
-            val markerColor = ColorUtils.getColorForDate(this, note.relatedDate)
-            val haloColor = Color.argb(128, Color.red(markerColor), Color.green(markerColor), Color.blue(markerColor))
 
             val symbolLayer = SymbolLayer(layerId, sourceId)
                 .withProperties(
+                    iconImage(imageId),
+                    iconTextFit(Property.ICON_TEXT_FIT_BOTH),
+                    iconTextFitPadding(arrayOf(10f, 20f, 10f, 20f)),
+                    iconAllowOverlap(true),
+                    iconIgnorePlacement(true),
                     textField(get("text")),
                     textColor(ContextCompat.getColor(this, R.color.black)),
                     textSize(14f),
-                    textAnchor(Property.TEXT_ANCHOR_BOTTOM),
-                    textOffset(arrayOf(0f, -2.5f)),
-                    textHaloColor(markerColor),
-                    textHaloWidth(100f),
-                    textJustify(Property.TEXT_JUSTIFY_LEFT)
+                    textJustify(Property.TEXT_JUSTIFY_LEFT),
+                    iconAnchor(Property.ICON_ANCHOR_BOTTOM),
+                    iconOffset(arrayOf(0f, 0f))
                 )
             style.addLayer(symbolLayer)
         }
+        // Track that this info window is now open
+        openInfoWindows.add(note.id)
     }
 
     private fun removeInfoWindows() {
@@ -824,6 +1035,33 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             val sourcesToRemove = style.sources.filter { it.id.startsWith("info-window-source-") }
             layersToRemove.forEach { style.removeLayer(it) }
             sourcesToRemove.forEach { style.removeSource(it) }
+        }
+        // Clear the tracking since all info windows are being removed
+        openInfoWindows.clear()
+    }
+    
+    private fun removeInfoWindowForNote(noteId: String) {
+        maplibreMap.getStyle { style ->
+            val layerId = "info-window-layer-$noteId"
+            val sourceId = "info-window-source-$noteId"
+            
+            style.getLayer(layerId)?.let { style.removeLayer(it) }
+            style.getSource(sourceId)?.let { style.removeSource(it) }
+        }
+        // Remove from tracking
+        openInfoWindows.remove(noteId)
+    }
+    
+    private fun showAllMatchingNotesTextClouds() {
+        // Show text clouds for all matching notes
+        searchResults.forEach { noteId ->
+            // Only show if not already open
+            if (!openInfoWindows.contains(noteId)) {
+                val note = notes.find { it.id == noteId }
+                if (note != null) {
+                    showInfoWindow(note)
+                }
+            }
         }
     }
 }
