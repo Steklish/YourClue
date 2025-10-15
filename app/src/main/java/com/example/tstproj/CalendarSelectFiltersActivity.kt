@@ -60,6 +60,12 @@ class CalendarSelectFiltersActivity : AppCompatActivity() {
                 val endDate = Date(range.second)
                 binding.selectedDateRange.text = "Selected range: ${sdf.format(startDate)} to ${sdf.format(endDate)}"
                 filterNotesByDate(startDate, endDate)
+                
+                // Pass the selected dates back to MainActivity
+                val resultIntent = Intent()
+                resultIntent.putExtra("startDate", startDate.time)
+                resultIntent.putExtra("endDate", endDate.time)
+                setResult(Activity.RESULT_OK, resultIntent)
             }
 
             dateRangePicker.show(supportFragmentManager, "dateRangePicker")
@@ -98,7 +104,7 @@ class CalendarSelectFiltersActivity : AppCompatActivity() {
 
     private fun filterNotesByDate(startDate: Date, endDate: Date) {
         val filteredNotes = allNotes.filter {
-            !it.creationDate.before(startDate) && !it.creationDate.after(endDate)
+            !it.relatedDate.before(startDate) && !it.relatedDate.after(endDate)
         }
         noteAdapter.updateNotes(filteredNotes)
     }

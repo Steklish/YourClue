@@ -91,6 +91,9 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private var linkingNote: Note? = null
     private var infoWindowPopup: PopupWindow? = null
     private var currentInfoNote: Note? = null
+    private var startDateFilter: Date? = null
+    private var endDateFilter: Date? = null
+    private var shouldApplyDefaultFilter = true
 
     // Temp state for new notes
     private var newNoteIcon: Int? = null
@@ -100,7 +103,16 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
     private val calendarActivityResultLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
-            loadNotes()
+            // Get custom date range if provided
+            val intent = result.data
+            if (intent?.hasExtra("startDate") == true && intent.hasExtra("endDate")) {
+                startDateFilter = Date(intent.getLongExtra("startDate", 0))
+                endDateFilter = Date(intent.getLongExtra("endDate", 0))
+            } else {
+                // Apply default current month filter if no custom range was set
+                setDefaultCurrentMonthFilter()
+            }
+            
             // Apply current search filter if there's an active search
             val query = searchInput.text.toString().trim()
             if (query.isNotEmpty()) {
@@ -217,6 +229,9 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             val intent = Intent(this, CalendarSelectFiltersActivity::class.java)
             calendarActivityResultLauncher.launch(intent)
         }
+        container.findViewById<MaterialButton>(R.id.clear_filtering_button).setOnClickListener {
+            clearAllFilters()
+        }
     }
 
     private fun setupSearchFunctionality() {
@@ -252,9 +267,9 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             // Show all notes normally when search is empty
             searchResults = emptySet()
         } else {
-            // Find notes that match the search query
+            // Find notes that match the search query AND are within date filter
             val lowerQuery = query.lowercase()
-            val matchingNotes = notes.filter { note ->
+            val allMatchingNotes = notes.filter { note ->
                 // Check if note text contains the query
                 note.text.lowercase().contains(lowerQuery) ||
                 // Check if related date contains the query (searching by date)
@@ -262,8 +277,13 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 // Also search in creation date
                 formatDate(note.creationDate).lowercase().contains(lowerQuery)
             }
+            
+            // Further filter to only include notes within the date range
+            val matchingNotes = allMatchingNotes.filter { note ->
+                isNoteWithinDateFilter(note)
+            }
+            
             searchResults = matchingNotes.map { it.id }.toSet()
-
         }
         showMarkersAndLinks() // Refresh the map to show all notes with transparency for non-matching ones
         
@@ -316,16 +336,31 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                         .target(LatLng(location.latitude, location.longitude))
                         .zoom(15.0)
                         .build()
-                    addMarker(
-                        location,
-                        0.04f,
-                        ContextCompat.getColor(this, R.color.primary_color),
-                        "self_marker"
-                    )
+                    // Add self marker with delay to ensure map is ready
+                    mapView.post {
+                        addMarker(
+                            location,
+                            0.04f,
+                            ContextCompat.getColor(this, R.color.primary_color),
+                            "self_marker"
+                        )
+                    }
                 } else {
                     somethingWentWrongInfoMessage()
                 }
-                showMarkersAndLinks()
+                
+                // Show markers with delay to ensure map is ready
+                mapView.post {
+                    showMarkersAndLinks()
+                }
+                
+                // Apply default filter after a short delay to ensure map is fully ready
+                if (shouldApplyDefaultFilter) {
+                    mapView.post {
+                        setDefaultCurrentMonthFilter()
+                        shouldApplyDefaultFilter = false
+                    }
+                }
             }
         }
 
@@ -601,10 +636,22 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             // Add background marker image (same as before)
             val backgroundIconId = "marker-background-$color"
             if (style.getImage(backgroundIconId) == null) {
-                val backgroundDrawable = ResourcesCompat.getDrawable(resources, R.drawable.geo_marker, null)!!
-                val wrappedDrawable = DrawableCompat.wrap(backgroundDrawable).mutate()
-                DrawableCompat.setTint(wrappedDrawable, color)
-                style.addImage(backgroundIconId, BitmapUtils.getBitmapFromDrawable(wrappedDrawable)!!)
+                val backgroundDrawable = ResourcesCompat.getDrawable(resources, R.drawable.geo_marker, null)
+                if (backgroundDrawable != null) {
+                    val wrappedDrawable = DrawableCompat.wrap(backgroundDrawable).mutate()
+                    DrawableCompat.setTint(wrappedDrawable, color)
+                    // Check if drawable has valid dimensions before converting to bitmap
+                    if (wrappedDrawable.intrinsicWidth > 0 && wrappedDrawable.intrinsicHeight > 0) {
+                        style.addImage(backgroundIconId, BitmapUtils.getBitmapFromDrawable(wrappedDrawable)!!)
+                    } else {
+                        // Fallback: use default size for vector drawables
+                        val bitmap = Bitmap.createBitmap(100, 100, Bitmap.Config.ARGB_8888)
+                        val canvas = Canvas(bitmap)
+                        wrappedDrawable.setBounds(0, 0, canvas.width, canvas.height)
+                        wrappedDrawable.draw(canvas)
+                        style.addImage(backgroundIconId, bitmap)
+                    }
+                }
             }
 
             // Add background layer
@@ -628,9 +675,22 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 // Add icon image (same as before)
                 val iconId = "marker-icon-$icon"
                 if (style.getImage(iconId) == null) {
-                    val iconDrawable = ResourcesCompat.getDrawable(resources, icon, null)!!.mutate()
-                    iconDrawable.setTint(ContextCompat.getColor(this, R.color.white))
-                    style.addImage(iconId, BitmapUtils.getBitmapFromDrawable(iconDrawable)!!)
+                    val iconDrawable = ResourcesCompat.getDrawable(resources, icon, null)
+                    if (iconDrawable != null) {
+                        iconDrawable.mutate()
+                        iconDrawable.setTint(ContextCompat.getColor(this, R.color.white))
+                        // Check if drawable has valid dimensions before converting to bitmap
+                        if (iconDrawable.intrinsicWidth > 0 && iconDrawable.intrinsicHeight > 0) {
+                            style.addImage(iconId, BitmapUtils.getBitmapFromDrawable(iconDrawable)!!)
+                        } else {
+                            // Fallback: use default size for vector drawables
+                            val bitmap = Bitmap.createBitmap(100, 100, Bitmap.Config.ARGB_8888)
+                            val canvas = Canvas(bitmap)
+                            iconDrawable.setBounds(0, 0, canvas.width, canvas.height)
+                            iconDrawable.draw(canvas)
+                            style.addImage(iconId, bitmap)
+                        }
+                    }
                 }
 
                 // Add icon layer
@@ -705,20 +765,34 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
             val drawnLinks = mutableSetOf<String>()
 
-            // Only draw links between notes that are currently visible (matching search or no search)
+            // Only draw links between notes that are currently visible (considering both search and date filters)
             notes.forEach { note1 ->
-                // Only process this note if it's visible
-                val isNote1Visible = searchResults.isEmpty() || searchResults.contains(note1.id)
-                if (isNote1Visible) {
-                    note1.linkedNotes?.forEach { note2Id ->
-                        // Only draw the link if both notes are visible
-                        val isNote2Visible = searchResults.isEmpty() || searchResults.contains(note2Id)
-                        val note2 = notes.find { it.id == note2Id }
-                        if (note2 != null && isNote2Visible) {
-                            val linkKey = if (note1.id < note2.id) "${note1.id}-${note2.id}" else "${note2.id}-${note1.id}"
-                            if (!drawnLinks.contains(linkKey)) {
-                                drawLineBetweenNotes(note1, note2)
-                                drawnLinks.add(linkKey)
+                // Check if note1 is within date filter
+                val isNote1WithinDateFilter = isNoteWithinDateFilter(note1)
+                
+                if (isNote1WithinDateFilter) {
+                    // Check if note1 matches the search
+                    val isNote1SearchMatch = searchResults.isEmpty() || searchResults.contains(note1.id)
+                    
+                    if (isNote1SearchMatch) {
+                        note1.linkedNotes?.forEach { note2Id ->
+                            val note2 = notes.find { it.id == note2Id }
+                            if (note2 != null) {
+                                // Check if note2 is within date filter
+                                val isNote2WithinDateFilter = isNoteWithinDateFilter(note2)
+                                
+                                if (isNote2WithinDateFilter) {
+                                    // Check if note2 matches the search
+                                    val isNote2SearchMatch = searchResults.isEmpty() || searchResults.contains(note2Id)
+                                    
+                                    if (isNote2SearchMatch) {
+                                        val linkKey = if (note1.id < note2.id) "${note1.id}-${note2.id}" else "${note2.id}-${note1.id}"
+                                        if (!drawnLinks.contains(linkKey)) {
+                                            drawLineBetweenNotes(note1, note2)
+                                            drawnLinks.add(linkKey)
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -799,28 +873,34 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             layersToRemove.forEach { style.removeLayer(it) }
             sourcesToRemove.forEach { style.removeSource(it) }
 
-            // Draw all links but only between notes that are visible (either matching search or no search active)
+            // Draw all links but only between notes that are visible (considering both search and date filters)
             drawLinksForVisibleNotes()
 
             notes.forEach { note ->
-                val noteLocation = Location("")
-                noteLocation.latitude = note.coordinates.latitude
-                noteLocation.longitude = note.coordinates.longitude
+                // Check if note is within date filter
+                val isWithinDateFilter = isNoteWithinDateFilter(note)
                 
-                // Determine if the note should be highlighted or transparent
-                val isMatchingNote = searchResults.isEmpty() || searchResults.contains(note.id)
-                
-                if (isMatchingNote) {
-                    // Show matching/normal notes with original color
-                    val color = ColorUtils.getColorForDate(this, note.relatedDate)
-                    addMarker(noteLocation, 0.08f, color, "note-${note.id}", note.icon)
-                } else {
-                    // Show non-matching notes as 70% transparent and grey
-                    val greyColor = ContextCompat.getColor(this, R.color.grey)
-                    // Adjust alpha to make it 70% transparent (30% opaque)
-                    val transparentGreyColor = applyAlphaToColor(greyColor, 0.3f)
-                    addMarker(noteLocation, 0.08f, transparentGreyColor, "note-${note.id}", note.icon)
-                }
+                if (isWithinDateFilter) {
+                    val noteLocation = Location("")
+                    noteLocation.latitude = note.coordinates.latitude
+                    noteLocation.longitude = note.coordinates.longitude
+                    
+                    // Determine if the note matches the search query
+                    val isSearchMatch = searchResults.isEmpty() || searchResults.contains(note.id)
+                    
+                    if (isSearchMatch) {
+                        // Show matching/normal notes with original color
+                        val color = ColorUtils.getColorForDate(this, note.relatedDate)
+                        addMarker(noteLocation, 0.08f, color, "note-${note.id}", note.icon)
+                    } else {
+                        // Show non-matching notes as 70% transparent and grey
+                        val greyColor = ContextCompat.getColor(this, R.color.grey)
+                        // Adjust alpha to make it 70% transparent (30% opaque)
+                        val transparentGreyColor = applyAlphaToColor(greyColor, 0.3f)
+                        addMarker(noteLocation, 0.08f, transparentGreyColor, "note-${note.id}", note.icon)
+                    }
+                } 
+                // If note is not within date filter, don't show it at all
             }
         }
 
@@ -1012,7 +1092,9 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             R.drawable.icon_background,
             R.drawable.ic_launcher_background,
             R.drawable.ic_launcher_foreground,
-            R.drawable.yc
+            R.drawable.yc,
+            R.drawable.info_window_background,
+            R.drawable.shape_zoom_button_background
         )
         return R.drawable::class.java.fields.map { it.getInt(null) }.filter { resId ->
             val resourceName = resources.getResourceEntryName(resId)
@@ -1121,6 +1203,70 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             )
         } catch (ex: Exception) {
             Log.e("ZoomError", "Error zooming to bounds: ${ex.message}")
+        }
+    }
+    
+    private fun clearAllFilters() {
+        startDateFilter = null
+        endDateFilter = null
+        // Update the map to show all notes again
+        val query = searchInput.text.toString().trim()
+        if (query.isNotEmpty()) {
+            performSearch() // Apply only the search filter
+        } else {
+            showMarkersAndLinks() // Show all notes
+        }
+    }
+    
+    private fun setDefaultCurrentMonthFilter() {
+        val calendar = Calendar.getInstance()
+        // Set to first day of current month
+        calendar.set(Calendar.DAY_OF_MONTH, 1)
+        calendar.set(Calendar.HOUR_OF_DAY, 0)
+        calendar.set(Calendar.MINUTE, 0)
+        calendar.set(Calendar.SECOND, 0)
+        calendar.set(Calendar.MILLISECOND, 0)
+        startDateFilter = calendar.time
+        
+        // Set to last day of current month
+        calendar.set(Calendar.DAY_OF_MONTH, calendar.getActualMaximum(Calendar.DAY_OF_MONTH))
+        calendar.set(Calendar.HOUR_OF_DAY, 23)
+        calendar.set(Calendar.MINUTE, 59)
+        calendar.set(Calendar.SECOND, 59)
+        calendar.set(Calendar.MILLISECOND, 999)
+        endDateFilter = calendar.time
+        
+        // Update the map to show only notes from current month
+        val query = searchInput.text.toString().trim()
+        if (query.isNotEmpty()) {
+            performSearch() // Apply search and date filter
+        } else {
+            showMarkersAndLinks() // Apply date filter only
+        }
+    }
+    
+    private fun isNoteWithinDateFilter(note: Note): Boolean {
+        if (startDateFilter == null && endDateFilter == null) {
+            return true // No filter applied, show all notes
+        }
+        
+        val noteDate = note.relatedDate  // Use relatedDate instead of creationDate
+        val start = startDateFilter
+        val end = endDateFilter
+        
+        return when {
+            start != null && end != null -> {
+                noteDate.time >= start.time && noteDate.time <= end.time
+            }
+            start != null -> {
+                noteDate.time >= start.time
+            }
+            end != null -> {
+                noteDate.time <= end.time
+            }
+            else -> {
+                true
+            }
         }
     }
 }
