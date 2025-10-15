@@ -110,11 +110,22 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             // Get custom date range if provided
             val intent = result.data
             if (intent?.hasExtra("startDate") == true && intent.hasExtra("endDate")) {
-                startDateFilter = Date(intent.getLongExtra("startDate", 0))
-                endDateFilter = Date(intent.getLongExtra("endDate", 0))
-                // Remember the selected dates for future use
-                lastSelectedStartDate = startDateFilter
-                lastSelectedEndDate = endDateFilter
+                val startDateValue = intent.getLongExtra("startDate", 0)
+                val endDateValue = intent.getLongExtra("endDate", 0)
+                
+                // Check if dates were cleared (0 values) or set to actual dates
+                if (startDateValue == 0L && endDateValue == 0L) {
+                    // Dates were cleared, show all notes
+                    startDateFilter = null
+                    endDateFilter = null
+                } else {
+                    // Actual dates were selected
+                    startDateFilter = Date(startDateValue)
+                    endDateFilter = Date(endDateValue)
+                    // Remember the selected dates for future use
+                    lastSelectedStartDate = startDateFilter
+                    lastSelectedEndDate = endDateFilter
+                }
             } else {
                 // Apply default current month filter if no custom range was set
                 setDefaultCurrentMonthFilter()
@@ -127,6 +138,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             } else {
                 showMarkersAndLinks()
             }
+            updateFilterButtonsState()
         }
     }
 
@@ -232,20 +244,34 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 maplibreMap.animateCamera(CameraUpdateFactory.zoomTo(maplibreMap.zoom - 1f), 200)
             }
         }
+        // Set initial text for the calendar button based on current filter state
+        updateCalendarButtonState()
+        
         container.findViewById<MaterialButton>(R.id.open_calendar_button).setOnClickListener {
-            val intent = Intent(this, CalendarSelectFiltersActivity::class.java)
-            // Pass last selected dates as extras if they exist
-            lastSelectedStartDate?.let { startDate ->
-                lastSelectedEndDate?.let { endDate ->
-                    intent.putExtra("lastSelectedStartDate", startDate.time)
-                    intent.putExtra("lastSelectedEndDate", endDate.time)
+            // If currently on current month filter, open calendar to select custom range
+            // Otherwise, apply current month filter
+            if (isCurrentlyOnCurrentMonthFilter()) {
+                // Open calendar to select custom date range
+                val intent = Intent(this, CalendarSelectFiltersActivity::class.java)
+                // Pass last selected dates as extras if they exist
+                lastSelectedStartDate?.let { startDate ->
+                    lastSelectedEndDate?.let { endDate ->
+                        intent.putExtra("lastSelectedStartDate", startDate.time)
+                        intent.putExtra("lastSelectedEndDate", endDate.time)
+                    }
                 }
+                calendarActivityResultLauncher.launch(intent)
+            } else {
+                // Apply current month filter
+                setDefaultCurrentMonthFilter()
             }
-            calendarActivityResultLauncher.launch(intent)
         }
         container.findViewById<MaterialButton>(R.id.clear_filtering_button).setOnClickListener {
             clearAllFilters()
         }
+        
+        // Update button states based on current filter status
+        updateFilterButtonsState()
     }
 
     private fun setupSearchFunctionality() {
@@ -300,6 +326,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             searchResults = matchingNotes.map { it.id }.toSet()
         }
         showMarkersAndLinks() // Refresh the map to show all notes with transparency for non-matching ones
+        updateFilterButtonsState()
         
         // Zoom to show all matching notes if search results exist
         if (query.isNotEmpty() && searchResults.isNotEmpty()) {
@@ -1232,6 +1259,55 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         
         // Update the map to show all notes again
         showMarkersAndLinks()
+        updateFilterButtonsState()
+    }
+    
+    private fun areFiltersActive(): Boolean {
+        return startDateFilter != null || endDateFilter != null || searchResults.isNotEmpty()
+    }
+    
+    private fun isCurrentlyOnCurrentMonthFilter(): Boolean {
+        // Check if date filters are set to the current month
+        val calendar = Calendar.getInstance()
+        calendar.set(Calendar.DAY_OF_MONTH, 1)
+        calendar.set(Calendar.HOUR_OF_DAY, 0)
+        calendar.set(Calendar.MINUTE, 0)
+        calendar.set(Calendar.SECOND, 0)
+        calendar.set(Calendar.MILLISECOND, 0)
+        val expectedStartDate = calendar.time
+        
+        calendar.set(Calendar.DAY_OF_MONTH, calendar.getActualMaximum(Calendar.DAY_OF_MONTH))
+        calendar.set(Calendar.HOUR_OF_DAY, 23)
+        calendar.set(Calendar.MINUTE, 59)
+        calendar.set(Calendar.SECOND, 59)
+        calendar.set(Calendar.MILLISECOND, 999)
+        val expectedEndDate = calendar.time
+        
+        return startDateFilter != null && endDateFilter != null &&
+               startDateFilter!!.time == expectedStartDate.time &&
+               endDateFilter!!.time == expectedEndDate.time
+    }
+    
+    private fun updateCalendarButtonState() {
+        val calendarButton = findViewById<MaterialButton>(R.id.open_calendar_button)
+        if (calendarButton != null) {
+            if (isCurrentlyOnCurrentMonthFilter()) {
+                calendarButton.text = "Date Range"
+            } else {
+                calendarButton.text = "Current Month"
+            }
+        }
+    }
+    
+    private fun updateFilterButtonsState() {
+        val clearFilterButton = findViewById<MaterialButton>(R.id.clear_filtering_button)
+        if (clearFilterButton != null) {
+            clearFilterButton.isEnabled = areFiltersActive()
+            val alpha = if (areFiltersActive()) 1.0f else 0.5f
+            clearFilterButton.alpha = alpha
+        }
+        
+        updateCalendarButtonState() // Update the calendar button text as well
     }
     
     private fun setDefaultCurrentMonthFilter() {
@@ -1259,6 +1335,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         } else {
             showMarkersAndLinks() // Apply date filter only
         }
+        updateFilterButtonsState()
     }
     
     private fun isNoteWithinDateFilter(note: Note): Boolean {

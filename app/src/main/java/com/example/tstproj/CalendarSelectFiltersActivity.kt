@@ -25,10 +25,8 @@ class CalendarSelectFiltersActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityCalendarSelectFiltersBinding.inflate(layoutInflater)
         setContentView(binding.root)
-
         storageHandler = LocalStorageHandler(this)
         loadNotes()
-
         noteAdapter = NoteAdapter(allNotes.toMutableList(), {
             val intent = Intent(this, MainActivity::class.java)
             intent.putExtra("noteId", it.id)
@@ -77,6 +75,15 @@ class CalendarSelectFiltersActivity : AppCompatActivity() {
             }
 
             dateRangePicker.show(supportFragmentManager, "dateRangePicker")
+        }
+        
+        binding.clearFiltersButton.setOnClickListener {
+            // Clear the date filters by passing null values back to MainActivity
+            val resultIntent = Intent()
+            resultIntent.putExtra("startDate", 0L) // 0 indicates null/empty
+            resultIntent.putExtra("endDate", 0L)
+            setResult(Activity.RESULT_OK, resultIntent)
+            finish() // Close the activity to return to main
         }
     }
 
