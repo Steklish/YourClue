@@ -15,6 +15,7 @@ import android.graphics.Color
 import android.graphics.drawable.LayerDrawable
 import android.location.Location
 import android.os.Bundle
+import android.os.Handler
 import android.renderscript.Allocation
 import android.renderscript.Element
 import android.renderscript.RenderScript
@@ -107,38 +108,49 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
     private val calendarActivityResultLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
-            // Get custom date range if provided
             val intent = result.data
-            if (intent?.hasExtra("startDate") == true && intent.hasExtra("endDate")) {
-                val startDateValue = intent.getLongExtra("startDate", 0)
-                val endDateValue = intent.getLongExtra("endDate", 0)
-                
-                // Check if dates were cleared (0 values) or set to actual dates
-                if (startDateValue == 0L && endDateValue == 0L) {
-                    // Dates were cleared, show all notes
-                    startDateFilter = null
-                    endDateFilter = null
-                } else {
-                    // Actual dates were selected
-                    startDateFilter = Date(startDateValue)
-                    endDateFilter = Date(endDateValue)
-                    // Remember the selected dates for future use
-                    lastSelectedStartDate = startDateFilter
-                    lastSelectedEndDate = endDateFilter
+            val noteId = intent?.getStringExtra("noteId")
+            val shouldOpenInfoWindow = intent?.getBooleanExtra("shouldOpenInfoWindow", false) ?: false
+            
+            // Check if this is a note navigation request
+            if (noteId != null) {
+                // Navigate to the specific note
+                mapView.post {
+                    navigateToNote(noteId, shouldOpenInfoWindow)
                 }
             } else {
-                // Apply default current month filter if no custom range was set
-                setDefaultCurrentMonthFilter()
+                // Handle date range selection as before
+                if (intent?.hasExtra("startDate") == true && intent.hasExtra("endDate")) {
+                    val startDateValue = intent.getLongExtra("startDate", 0)
+                    val endDateValue = intent.getLongExtra("endDate", 0)
+                    
+                    // Check if dates were cleared (0 values) or set to actual dates
+                    if (startDateValue == 0L && endDateValue == 0L) {
+                        // Dates were cleared, show all notes
+                        startDateFilter = null
+                        endDateFilter = null
+                    } else {
+                        // Actual dates were selected
+                        startDateFilter = Date(startDateValue)
+                        endDateFilter = Date(endDateValue)
+                        // Remember the selected dates for future use
+                        lastSelectedStartDate = startDateFilter
+                        lastSelectedEndDate = endDateFilter
+                    }
+                } else {
+                    // Apply default current month filter if no custom range was set
+                    setDefaultCurrentMonthFilter()
+                }
+                
+                // Apply current search filter if there's an active search
+                val query = searchInput.text.toString().trim()
+                if (query.isNotEmpty()) {
+                    performSearch()
+                } else {
+                    showMarkersAndLinks()
+                }
+                updateFilterButtonsState()
             }
-            
-            // Apply current search filter if there's an active search
-            val query = searchInput.text.toString().trim()
-            if (query.isNotEmpty()) {
-                performSearch()
-            } else {
-                showMarkersAndLinks()
-            }
-            updateFilterButtonsState()
         }
     }
 
@@ -361,6 +373,10 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
     override fun onMapReady(map: MapLibreMap) {
         this.maplibreMap = map
+        map.uiSettings.isCompassEnabled = true
+        map.uiSettings.setCompassGravity(android.view.Gravity.BOTTOM or android.view.Gravity.LEFT)
+        map.uiSettings.setCompassMargins(20, 20, 20, 20) // left, top, right, bottom margins in pixels
+
         val key = BuildConfig.MAPTILER_API_KEY
         val mapId = "backdrop"
         val styleUrl = "https://api.maptiler.com/maps/$mapId/style.json?key=$key"
@@ -410,7 +426,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
             val screenPoint = map.projection.toScreenLocation(point)
             val noteLayerIds = notes.map { "note-${it.id}-background-layer" }.toTypedArray()
-            val features = map.queryRenderedFeatures(screenPoint, *noteLayerIds)
+            val allLayerIds = noteLayerIds + arrayOf("temp_marker-background-layer")
+            val features = map.queryRenderedFeatures(screenPoint, *allLayerIds)
 
             if (linkingNote != null) {
                 if (features.isNotEmpty()) {
@@ -453,15 +470,23 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 val featureId = features[0].getStringProperty("id")
                 Log.d("InfoWindowDebug", "Feature clicked with ID: $featureId")
                 if (featureId != null) {
-                    val noteId = featureId.substringAfter("note-")
-                    Log.d("InfoWindowDebug", "Extracted note ID: $noteId")
-                    val note = notes.find { it.id == noteId }
-                    if (note != null) {
-                        // Show the info window for the clicked note
-                        showInfoWindowForNote(note, point)
+                    if (featureId == "temp_marker") {
+                        // Clicked on temp marker - open the same dialog as Add Note button
+                        selectedLocation = point
+                        editingNote = null
+                        showEditPopup()
                         return@addOnMapClickListener true
                     } else {
-                        Log.d("InfoWindowDebug", "Note not found for ID: $noteId")
+                        val noteId = featureId.substringAfter("note-")
+                        Log.d("InfoWindowDebug", "Extracted note ID: $noteId")
+                        val note = notes.find { it.id == noteId }
+                        if (note != null) {
+                            // Show the info window for the clicked note
+                            showInfoWindowForNote(note, point)
+                            return@addOnMapClickListener true
+                        } else {
+                            Log.d("InfoWindowDebug", "Note not found for ID: $noteId")
+                        }
                     }
                 } else {
                     Log.d("InfoWindowDebug", "Feature ID is null")
@@ -1135,7 +1160,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             R.drawable.ic_launcher_foreground,
             R.drawable.yc,
             R.drawable.info_window_background,
-            R.drawable.shape_zoom_button_background
+            R.drawable.shape_zoom_button_background,
+            R.drawable.ic_search
         )
         return R.drawable::class.java.fields.map { it.getInt(null) }.filter { resId ->
             val resourceName = resources.getResourceEntryName(resId)
@@ -1359,6 +1385,28 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             }
             else -> {
                 true
+            }
+        }
+    }
+    
+    private fun navigateToNote(noteId: String, shouldOpenInfoWindow: Boolean = false) {
+        val note = notes.find { it.id == noteId }
+        if (note != null) {
+            // Zoom to the note's location
+            val targetPosition = LatLng(note.coordinates.latitude, note.coordinates.longitude)
+            
+            // Animate the camera to the note's position with appropriate zoom
+            maplibreMap.animateCamera(
+                CameraUpdateFactory.newLatLngZoom(targetPosition, 15.0),
+                1000 // duration in milliseconds
+            )
+            
+            // Optionally open the info window for the note
+            if (shouldOpenInfoWindow) {
+                // Add a small delay to ensure the camera animation completes
+                Handler(mainLooper).postDelayed({
+                    showInfoWindowForNote(note, targetPosition)
+                }, 1000)
             }
         }
     }

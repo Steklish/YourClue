@@ -1,11 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <style name="Theme.TstProj" parent="android:Theme.Material.Light.NoActionBar" />
+    <style name="Theme.TstProj" parent="Theme.Material3.Light.NoActionBar">
+        <!-- Disable dynamic colors and use fixed colors -->
+        <item name="colorPrimary">@color/primary_color</item>
+        <item name="colorOnPrimary">@color/white</item>
+        <item name="colorPrimaryContainer">@color/primary_color_inactive</item>
+        <item name="colorOnPrimaryContainer">@color/white</item>
+        <item name="android:forceDarkAllowed">false</item>
+    </style>
     <!-- Base application theme. -->
-    <style name="Base.Theme.TstProj" parent="Theme.Material3.DayNight.NoActionBar">
-        <!-- Customize your light theme here. -->
-        <!-- <item name="colorPrimary">@color/my_light_primary</item> -->
+    <style name="Base.Theme.TstProj" parent="Theme.Material3.Light.NoActionBar">
+        <!-- Disable dynamic colors and use fixed colors -->
+        <item name="colorPrimary">@color/primary_color</item>
+        <item name="colorOnPrimary">@color/white</item>
+        <item name="colorPrimaryContainer">@color/primary_color_inactive</item>
+        <item name="colorOnPrimaryContainer">@color/white</item>
+        <item name="android:forceDarkAllowed">false</item>
     </style>
 
     <style name="Base.Button" parent="Widget.MaterialComponents.Button">
@@ -48,5 +59,8 @@
         <item name="colorPrimary">@color/primary_color</item>
         <item name="colorOnPrimary">@color/white</item>
         <item name="colorOnSurface">@color/black</item>
+        <item name="colorOnSecondary">@color/white</item>
+        <item name="colorSurface">@color/white</item>
+        <item name="colorOnSurfaceVariant">@color/dark_grey</item>
     </style>
 </resources>

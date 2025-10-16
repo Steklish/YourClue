@@ -8,13 +8,15 @@ import android.widget.Button
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
+import com.google.android.material.button.MaterialButton
 import java.text.SimpleDateFormat
 import java.util.Locale
 
 class NoteAdapter(
     private var notes: MutableList<Note>,
     private val onNoteClick: (Note) -> Unit,
-    private val onDelete: (Note) -> Unit
+    private val onDelete: (Note) -> Unit,
+    private val onLocateNote: (Note) -> Unit  // Callback for locate button
 ) : RecyclerView.Adapter<NoteAdapter.NoteViewHolder>() {
 
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
@@ -40,6 +42,7 @@ class NoteAdapter(
         }
 
         holder.deleteButton.setOnClickListener { onDelete(note) }
+        holder.locateButton.setOnClickListener { onLocateNote(note) }
         holder.itemView.setOnClickListener { onNoteClick(note) }
     }
 
@@ -55,6 +58,7 @@ class NoteAdapter(
         val colorIndicator: View = itemView.findViewById(R.id.note_color_indicator)
         val noteDate: TextView = itemView.findViewById(R.id.note_preview_date)
         val deleteButton: Button = itemView.findViewById(R.id.delete_note_button)
+        val locateButton: com.google.android.material.button.MaterialButton = itemView.findViewById(R.id.locate_note_button)
         val noteIcon: ImageView = itemView.findViewById(R.id.note_icon)
     }
 }

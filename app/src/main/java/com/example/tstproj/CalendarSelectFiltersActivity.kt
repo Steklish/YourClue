@@ -28,11 +28,20 @@ class CalendarSelectFiltersActivity : AppCompatActivity() {
         storageHandler = LocalStorageHandler(this)
         loadNotes()
         noteAdapter = NoteAdapter(allNotes.toMutableList(), {
-            val intent = Intent(this, MainActivity::class.java)
+            // For regular click, just pass the note ID (might be used for other purposes)
+            val intent = Intent()
             intent.putExtra("noteId", it.id)
-            startActivity(intent)
+            setResult(Activity.RESULT_OK, intent)
+            finish() // Close this activity and return to MainActivity
         }, {
             deleteNote(it)
+        }, {
+            // For locate, return to MainActivity with the note ID and locate flag
+            val intent = Intent()
+            intent.putExtra("noteId", it.id)
+            intent.putExtra("shouldOpenInfoWindow", true)
+            setResult(Activity.RESULT_OK, intent)
+            finish() // Close this activity and return to MainActivity
         })
         binding.notesRecyclerView.layoutManager = LinearLayoutManager(this)
         binding.notesRecyclerView.adapter = noteAdapter

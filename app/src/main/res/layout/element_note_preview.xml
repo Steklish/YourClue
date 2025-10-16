@@ -23,8 +23,10 @@
         android:layout_marginStart="4dp"
         android:visibility="gone"
         app:layout_constraintBottom_toBottomOf="@+id/note_color_indicator"
-        app:layout_constraintStart_toEndOf="@+id/note_color_indicator"
+        app:layout_constraintStart_toStartOf="@+id/note_color_indicator"
+        app:layout_constraintEnd_toEndOf="@+id/note_color_indicator"
         app:layout_constraintTop_toTopOf="@+id/note_color_indicator"
+        app:tint="@color/white"
         tools:visibility="visible" />
 
     <TextView
@@ -71,11 +73,11 @@
             app:iconTint="@color/dark_grey" />
 
         <com.google.android.material.button.MaterialButton
-            android:id="@+id/unmark_note_button"
+            android:id="@+id/locate_note_button"
             style="@style/Widget.MaterialComponents.Button.TextButton"
             android:layout_width="48dp"
             android:layout_height="wrap_content"
-            app:icon="@drawable/delete_location"
+            app:icon="@drawable/gps_arrow"
             app:iconTint="@color/dark_grey" />
 
     </LinearLayout>
