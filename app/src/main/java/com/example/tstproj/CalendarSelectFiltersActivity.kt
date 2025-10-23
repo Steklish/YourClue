@@ -4,7 +4,9 @@ import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
+import android.view.View
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.core.util.Pair
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.example.tstproj.databinding.ActivityCalendarSelectFiltersBinding
@@ -25,6 +27,11 @@ class CalendarSelectFiltersActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityCalendarSelectFiltersBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        
+        // Set status bar color to primary color and ensure it stays consistent
+        window.statusBarColor = ContextCompat.getColor(this, R.color.primary_color)
+        // Since primary_color is dark, make status bar icons light (white)
+        window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
         storageHandler = LocalStorageHandler(this)
         loadNotes()
         noteAdapter = NoteAdapter(allNotes.toMutableList(), {

@@ -41,8 +41,10 @@
         android:textColor="@color/dark_grey"
         android:textSize="14sp"
         app:layout_constraintEnd_toStartOf="@+id/note_actions_layout"
-        app:layout_constraintStart_toEndOf="@+id/note_icon"
-        app:layout_constraintTop_toTopOf="parent" />
+        app:layout_constraintStart_toEndOf="@+id/note_color_indicator"
+        app:layout_constraintTop_toTopOf="@id/note_color_indicator"
+        app:layout_constraintBottom_toBottomOf="@id/note_color_indicator"
+        />
 
     <TextView
         android:id="@+id/note_preview_date"

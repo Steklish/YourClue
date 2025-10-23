@@ -216,6 +216,11 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
         checkAndRequestLocationPermission()
 
+        // Set status bar color to primary color and ensure it stays consistent
+        window.statusBarColor = ContextCompat.getColor(this, R.color.primary_color)
+        // Since primary_color is dark, make status bar icons light (white)
+        window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+        
         ViewCompat.setOnApplyWindowInsetsListener(container) { view, windowInsets ->
             val insets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars())
             val statusBarHeight = insets.top
@@ -1085,7 +1090,11 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     }
 
     private fun showDatePicker() {
-        val datePicker = MaterialDatePicker.Builder.datePicker().setTitleText("Select date").setSelection(MaterialDatePicker.todayInUtcMilliseconds()).build()
+        val datePicker = MaterialDatePicker.Builder.datePicker()
+            .setTheme(R.style.CustomCalendar)
+            .setTitleText("Select date")
+            .setSelection(MaterialDatePicker.todayInUtcMilliseconds())
+            .build()
         datePicker.addOnPositiveButtonClickListener { date ->
             val selectedDate = Date(date)
             if (editingNote != null) {

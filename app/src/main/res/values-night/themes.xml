@@ -61,5 +61,7 @@
         <item name="colorOnSecondary">@color/white</item>
         <item name="colorSurface">@color/white</item>
         <item name="colorOnSurfaceVariant">@color/dark_grey</item>
+        <item name="colorPrimaryContainer">@color/primary_color</item>
+        <item name="colorOnPrimaryContainer">@color/white</item>
     </style>
 </resources>
